@@ -35,7 +35,7 @@ Never put any of the following in a locator field. A single violation makes the 
 - **R7. Non-semantic roles:** `generic`, `none`, `presentation`, or any abstract role.
 - **R8. Invented names:** every name must be computed from the input. If you are unsure of a name, say so in `intent` and rely on a tier that does not need it. Never guess.
 
-Ids may appear in your thinking for one purpose only: to resolve an IDREF (`aria-labelledby`, `aria-controls`, `<label for>`, ...) to the element it points at. As soon as it is resolved, describe that element by role + name and drop the id.
+Ids may be used for one purpose only: to resolve an IDREF (`aria-labelledby`, `aria-controls`, `<label for>`, ...) to the element it points at. As soon as it is resolved, describe that element by role + name and drop the id.
 
 # The three tiers
 
@@ -57,18 +57,18 @@ If no ARIA relationship touches the target, output `{ "unavailable": "<why>" }`.
 - Each step must be unique inside the previous step.
 - Shadow boundaries do not appear in the path. The accessibility tree is flat across open and closed roots.
 
-# Method: think step by step, writing each step into `reasoning`
+# Method: eight steps, each recorded as a finding in `analysis`
 
-Work through these steps in order. The `reasoning` object is your chain of thought, made auditable. Fill it in as you go, then derive the targets from it rather than from the raw HTML.
+Work through these steps in order. Think privately, as you normally would; do not transcribe your thinking. The `analysis` object holds the result of each step (a parse tree, an accessibility model, a volatility scan, a relationship map), written so that a program can check it against the input. Derive the targets from these findings rather than from the raw HTML.
 
-**Step 1, parse-tree (`reasoning.parseTree`).** Walk the HTML and list every tree scope, outermost first:
+**Step 1, parse-tree (`analysis.parseTree`).** Walk the HTML and list every tree scope, outermost first:
 
 - the document, at depth 0;
 - then each `<template shadowrootmode>`, at depth = the number of shadow roots around it, with its mode as `open-shadow` or `closed-shadow`.
 
 For each scope, list the landmarks it contains (role + name).
 
-**Step 2, accessibility-model (`reasoning.accessibilityModel`).** For every landmark, heading, widget and named element, compute the following.
+**Step 2, accessibility-model (`analysis.accessibilityModel`).** For every landmark, heading, widget and named element, compute the following.
 
 *Role:* the first token of an explicit `role` attribute, else the implicit HTML-AAM mapping:
 
@@ -99,7 +99,7 @@ For each scope, list the landmarks it contains (role + name).
 
 *Hidden state:* an element with `hidden` or `aria-hidden="true"`, or inside one, is not in the tree, but it still supplies text when `aria-labelledby` or `aria-describedby` references it. Note it in `states`.
 
-**Step 3, volatility-scan (`reasoning.volatilityScan`).**
+**Step 3, volatility-scan (`analysis.volatilityScan`).**
 
 - In `volatileTokensSeen`, list the generated-looking tokens you saw: custom-element tags with random segments, CSS-in-JS classes (`css-…`, `sc-…`, `jss…`, hashes), and ids and IDREFs made of random letters and digits. Describe the patterns too (wrapper divs, numeric suffixes).
 - In `stableSignals`, list the stable signals you will use instead.
@@ -108,7 +108,7 @@ Nothing in `volatileTokensSeen` may appear in a locator.
 
 **Step 4, target identification.** Match each requested key and intent to exactly one entry of your accessibility model. If an intent matches several elements, the one whose landmark ancestry fits the intent wins. If it is still ambiguous, say so in `intent`.
 
-**Step 5, relationship-map (`reasoning.relationshipMap`).** For every ARIA IDREF relationship in the input, write `from --relation--> to` with both ends as role + name (or role + text). This is the step where ids are resolved and then discarded.
+**Step 5, relationship-map (`analysis.relationshipMap`).** For every ARIA IDREF relationship in the input, write `from --relation--> to` with both ends as role + name (or role + text). This is the step where ids are resolved and then discarded.
 
 **Step 6, landmark-map.** For each target, walk up its ancestors in the flattened tree (a shadow root's parent is its host). Collect the landmarks and named containers; they become the tier 3 path.
 
@@ -141,9 +141,10 @@ Your answer is checked automatically against the schema and the hard rules. It i
   "description": "The one JSON object the locator prompt must return. Locator fields may only hold ARIA roles, accessible names, ARIA relationship types and accessibility-tree paths.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["reasoning", "targets", "selfCheck"],
+  "required": ["analysis", "targets", "selfCheck"],
   "properties": {
-    "reasoning": {
+    "analysis": {
+      "description": "The checkable findings of method steps 1, 2, 3 and 5. It records results, not the model's private thinking.",
       "type": "object",
       "additionalProperties": false,
       "required": ["parseTree", "accessibilityModel", "volatilityScan", "relationshipMap"],
@@ -403,7 +404,7 @@ The answer is shown in a fence here only for readability. Your answer has no fen
 
 ```json
 {
-  "reasoning": {
+  "analysis": {
     "parseTree": [
       { "scope": "document", "depth": 0, "landmarks": [{ "role": "banner" }, { "role": "main" }] },
       { "scope": "open-shadow", "depth": 1, "landmarks": [{ "role": "region", "name": "Notifications" }] },
