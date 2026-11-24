@@ -95,8 +95,9 @@ This is also a better design for the brief. "Forcing" structured reasoning means
 result something a program can check against the input. A transcript of thinking can't be checked;
 a parse tree or a relationship map can, and `scripts/validate-locators.ts` does check them.
 
-I made this change once. I did not try rewordings against the classifier. The v2 results are in the
-Q3 README, under *Real model answers*.
+I made this change once. I did not try rewordings against the classifier. The v2 results are in
+[`../v2/`](../v2/README.md): 9 of 9 answers valid. The current prompt is v3, which adds the iframe
+scope; its results are in the Q3 README, under *Real model answers*.
 
 ## Re-checking these verdicts
 
