@@ -8,7 +8,7 @@ import {
   DEFAULT_INPUT, parseModelOutput, REFERENCE_PATH, selfTest, validateFile, validateStrategy, SCHEMA_PATH, type Target,
 } from '../scripts/validate-locators';
 import { Evidence } from './framework/evidence';
-import { installPierce, loadDemo, RELOADS, sameNode } from './framework/pierce';
+import { inOwnFrame, installPierce, loadDemo, RELOADS, sameNode } from './framework/pierce';
 import { resolveTarget } from './framework/resolveStrategy';
 
 const fromRoot = (path: string): string => fileURLToPath(new URL(`../${path}`, import.meta.url));
@@ -68,7 +68,10 @@ function fencedBlock(markdown: string, heading: string, lang: string): string {
   return markdown.slice(start, markdown.indexOf('\n```', start));
 }
 
-const SCOPE_MODE = { document: 'document', 'open-shadow': 'open', 'closed-shadow': 'closed' } as const;
+const SCOPE_MODE = { document: 'document', 'open-shadow': 'open', 'closed-shadow': 'closed', iframe: 'frame' } as const;
+
+/** Scopes behind the closed boundary: the closed root itself and the iframe nested in it. */
+const BEHIND_CLOSED = new Set(['closed-shadow', 'iframe']);
 
 test.describe('Q3 - ARIA-only locator strategies from the CoT prompt', () => {
   test('the system prompt embeds the schema verbatim and its few-shot answer passes the validator', async ({}, testInfo) => {
@@ -170,7 +173,7 @@ test.describe('Q3 - ARIA-only locator strategies from the CoT prompt', () => {
           const mode = await element.evaluate((el) => window.__shadowPierce.scopeOf(el).mode);
           expect(mode, `${where}: scope "${target.scope}"`).toBe(SCOPE_MODE[target.scope]);
           scopeClaims++;
-          if (target.scope === 'closed-shadow') {
+          if (BEHIND_CLOSED.has(target.scope)) {
             const t1 = target.tier1;
             closedBaselineHits += await (t1.name === undefined
               ? page.getByRole(t1.role as never)
@@ -185,19 +188,19 @@ test.describe('Q3 - ARIA-only locator strategies from the CoT prompt', () => {
         // Drive the transfer through the tier-3 handles when the strategy covers the form.
         const amount = deepest.get('textbox|Amount');
         const account = deepest.get('combobox|To account');
-        const confirm = deepest.get('button|Confirm transfer');
+        const confirm = deepest.get('button|Confirm Transaction');
         const status = deepest.get('status|');
         if (amount && account && confirm && status) {
           const value = (load * 77.7).toFixed(2);
           await amount.fill(value);
           await account.selectOption({ label: 'Holiday fund 1093' });
-          await confirm.click();
+          await (await inOwnFrame(confirm)).click(); // the button is in the iframe: act through that frame
           await expect.poll(() => status.evaluate((el) => el.textContent)).toBe(`Transfer of ${value} to Holiday fund 1093 scheduled.`);
           flows++;
         }
       }
 
-      expect(closedBaselineHits, 'getByRole alone finds none of the closed-shadow targets').toBe(0);
+      expect(closedBaselineHits, 'getByRole alone finds none of the targets behind the closed boundary').toBe(0);
       evidence.metric('validator', `VALID (${report.warnings.length} warnings)`);
       evidence.metric('targets', targets.length);
       evidence.metric('scopes', [...new Set(targets.map((t) => t.scope))].join(', '));
@@ -205,7 +208,7 @@ test.describe('Q3 - ARIA-only locator strategies from the CoT prompt', () => {
       evidence.metric('reloads', RELOADS);
       evidence.metric('tier checks (same single element)', `${checks}/${checks}`);
       evidence.metric('scope claims matching the page', `${scopeClaims}/${targets.length * RELOADS}`);
-      evidence.metric('getByRole hits for closed-shadow targets', closedBaselineHits);
+      evidence.metric('getByRole hits for targets behind the closed root', closedBaselineHits);
       evidence.metric('transfer driven via tier 3', `${flows}/${RELOADS}`);
       if (source.metaPath) {
         const reference = validateFile(REFERENCE_PATH, readFileSync(DEFAULT_INPUT, 'utf8')).strategy?.targets as Target[];
