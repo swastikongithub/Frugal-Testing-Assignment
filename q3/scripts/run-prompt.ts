@@ -144,8 +144,17 @@ function main(argv: string[]): number {
   const runs = Number(opt('--runs') ?? 1);
   const version = cliVersion();
   let invalid = 0;
+  let failed = 0;
   for (let i = 0; i < runs; i++) {
-    const recorded = runOnce(model, opt('--effort'), version);
+    let recorded: RecordedRun;
+    try {
+      recorded = runOnce(model, opt('--effort'), version);
+    } catch (error) {
+      // A failed call (a refusal, a timeout, a CLI error) records nothing; report it and go on to the next run.
+      failed++;
+      console.log(`prompt:run ${model} call ${i + 1}/${runs}: FAILED, nothing recorded\n  ${String(error instanceof Error ? error.message : error).replace(/\n/g, '\n  ')}`);
+      continue;
+    }
     const meta = JSON.parse(readFileSync(recorded.metaPath, 'utf8')) as { durationMs: number; tokens: { input: number; output: number } };
     const report = validateFile(recorded.answerPath, readFileSync(DEFAULT_INPUT, 'utf8'));
     if (report.errors.length) invalid++;
@@ -155,7 +164,8 @@ function main(argv: string[]): number {
     for (const e of report.errors) console.log(`  ERROR    : ${e.code} at ${e.at}: ${e.message}`);
     console.log(`  validator: ${report.errors.length ? `INVALID (${report.errors.length} error(s))` : 'VALID'}`);
   }
-  return invalid ? 1 : 0;
+  console.log(`prompt:run ${model}: ${runs - failed - invalid} valid, ${invalid} invalid, ${failed} failed (of ${runs})`);
+  return invalid || failed ? 1 : 0;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
