@@ -1,0 +1,6 @@
+{
+  "claude-haiku-5-5/run-2": {
+    "failsAt": "load 1, amountField: tier 3 (shadow-pierce a11y path) matches one element",
+    "why": "The answer gives the amount input the role spinbutton, from inputmode=\"decimal\". An input without a type attribute is a textbox whatever its inputmode, so nothing on the page matches spinbutton \"Amount\". The validator cannot see this (spinbutton is a valid role and \"Amount\" is in the input); running the strategy does."
+  }
+}
