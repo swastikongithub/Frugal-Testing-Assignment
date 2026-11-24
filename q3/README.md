@@ -307,11 +307,12 @@ What the answers show:
 
 - **They converge.** 8 of the 9 answers use exactly the same locators as the hand-written reference,
   for all 6 targets: the same scope, the same tier 1 role and name, the same tier 2, and the same tier 3
-  path. Each model-answer test prints this as `locators vs hand-written reference`. Tier 2 is `aria-controls` for the tab/panel pairs and for button → status, and `unavailable` for
-  the amount and account fields, which only have a `<label for>`. The ninth (Haiku run-1) differs in one
-  way: its tier 3 paths start at the named `region` landmark instead of `main`. That is still
-  landmark-first, and it resolves too. The models never saw the reference: the prompt's only example
-  is a different component.
+  path. Each model-answer test prints this as `locators vs hand-written reference`.
+  - Tier 2 is `aria-controls` for the tab/panel pairs and for button → status. It is `unavailable`
+    for the amount and account fields, which only have a `<label for>`.
+  - The ninth answer (Haiku run-1) differs in one way: its tier 3 paths start at the named `region`
+    landmark instead of `main`. That is still landmark-first, and it resolves too.
+  - The models never saw the reference: the prompt's only example is a different component.
 - **Names were computed, not copied.** The user message asks for targets by intent ("the button that
   submits the transfer"). Every model derived the accessible names itself, and `NAME_NOT_IN_INPUT` never
   fired.
@@ -320,9 +321,10 @@ What the answers show:
 
 **Why the prompt is v2.** The first version asked the model to write its chain of thought out in a
 `reasoning` object. Haiku answered (2 of 3 valid), but Sonnet and Opus refused before answering,
-because their safeguards flagged the request as `reasoning_extraction`. v2 changes that framing and
-nothing else: the model thinks privately, and `analysis` holds each step's checkable findings. This
-also fits the brief better, because a finding can be checked against the input and a transcript can't.
+because their safeguards flagged the request as `reasoning_extraction`. v2 changes only that framing.
+The model thinks privately, and `analysis` (renamed from `reasoning`) holds each step's checkable
+findings. The steps, rules and checks are unchanged. This also fits the brief better, because a
+finding can be checked against the input and a transcript can't.
 The change was made once and not tuned against the classifier. The full record, with the verbatim
 refusals and request IDs, is in [`prompt/history/v1/`](prompt/history/v1/README.md).
 
