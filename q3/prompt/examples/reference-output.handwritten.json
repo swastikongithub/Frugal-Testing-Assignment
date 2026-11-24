@@ -11,7 +11,8 @@
           { "role": "region", "name": "Transfer funds" }
         ]
       },
-      { "scope": "closed-shadow", "depth": 2, "landmarks": [{ "role": "form", "name": "New transfer" }] }
+      { "scope": "closed-shadow", "depth": 2, "landmarks": [{ "role": "form", "name": "New transfer" }] },
+      { "scope": "iframe", "depth": 3, "landmarks": [] }
     ],
     "accessibilityModel": [
       { "role": "banner", "name": "", "roleSource": "implicit-html", "nameSource": "none", "scope": "document" },
@@ -39,27 +40,33 @@
       { "role": "combobox", "name": "To account", "roleSource": "implicit-html", "nameSource": "label-element", "scope": "closed-shadow" },
       { "role": "option", "name": "Savings 4821", "roleSource": "implicit-html", "nameSource": "content", "scope": "closed-shadow" },
       { "role": "option", "name": "Holiday fund 1093", "roleSource": "implicit-html", "nameSource": "content", "scope": "closed-shadow" },
-      { "role": "button", "name": "Confirm transfer", "roleSource": "implicit-html", "nameSource": "content", "scope": "closed-shadow" },
-      { "role": "status", "name": "", "roleSource": "explicit-role", "nameSource": "none", "scope": "closed-shadow", "states": ["aria-live=polite"] }
+      { "role": "button", "name": "Confirm Transaction", "roleSource": "implicit-html", "nameSource": "content", "scope": "iframe" },
+      { "role": "paragraph", "name": "", "roleSource": "implicit-html", "nameSource": "none", "scope": "iframe" },
+      { "role": "status", "name": "", "roleSource": "explicit-role", "nameSource": "none", "scope": "iframe", "states": ["aria-live=polite"] }
     ],
     "volatilityScan": {
       "volatileTokensSeen": [
-        "mf-ru5x3-0awpj",
-        "mf-qwrl7-psaog",
-        "css-cb05q",
-        "css-udwwm",
-        "ruus0w7tof7",
-        "gzij79wxiwt",
+        "mf-krq0g-mz4h9",
+        "mf-5eefo-ry58m",
+        "css-ay5y9",
+        "cta-onj4i",
+        "zwvcv56eeub",
+        "c5gxy6jvyj1",
+        "dyn-uuid-8183",
+        "/confirm-frame.html?session=p423s",
         "custom element tags mf-<5 chars>-<5 chars>",
-        "a css-<5 chars> class on every element",
+        "a css-<5 chars> or cta-<5 chars> class on every element",
         "11-character random ids and the IDREFs that point at them",
+        "a dyn-uuid-<n> data-test-id on the confirm button",
+        "a random session query in the iframe src",
         "anonymous wrapper divs that change the nesting depth"
       ],
       "stableSignals": [
         "implicit and explicit ARIA roles",
         "accessible names from labels, aria-label, aria-labelledby and content",
         "the relationship types aria-controls, aria-labelledby and aria-describedby (not their IDREF values)",
-        "landmark ancestry: main > named region > named form"
+        "landmark ancestry: main > named region > named form, which also holds the iframe's document",
+        "the button's own document: its aria-controls and aria-describedby resolve inside the iframe"
       ]
     },
     "relationshipMap": [
@@ -71,8 +78,8 @@
       { "from": { "role": "button", "name": "Enable two-factor authentication" }, "relation": "aria-describedby", "to": { "role": "paragraph", "text": "You will need an authenticator app." } },
       { "from": { "role": "region", "name": "Transfer funds" }, "relation": "aria-labelledby", "to": { "role": "heading", "name": "Transfer funds" } },
       { "from": { "role": "form", "name": "New transfer" }, "relation": "aria-labelledby", "to": { "role": "heading", "name": "New transfer" } },
-      { "from": { "role": "button", "name": "Confirm transfer" }, "relation": "aria-controls", "to": { "role": "status" } },
-      { "from": { "role": "button", "name": "Confirm transfer" }, "relation": "aria-describedby", "to": { "role": "paragraph", "text": "Transfers over 1,000.00 need two-factor authentication." } }
+      { "from": { "role": "button", "name": "Confirm Transaction" }, "relation": "aria-controls", "to": { "role": "status" } },
+      { "from": { "role": "button", "name": "Confirm Transaction" }, "relation": "aria-describedby", "to": { "role": "paragraph", "text": "Transfers over 1,000.00 need two-factor authentication." } }
     ]
   },
   "targets": [
@@ -111,17 +118,17 @@
     {
       "key": "confirmTransfer",
       "intent": "the button that submits the transfer",
-      "scope": "closed-shadow",
-      "tier1": { "role": "button", "name": "Confirm transfer", "uniqueOnPage": true },
+      "scope": "iframe",
+      "tier1": { "role": "button", "name": "Confirm Transaction", "uniqueOnPage": true },
       "tier2": { "relation": "aria-controls", "direction": "target-to-anchor", "anchor": { "role": "status" }, "targetRole": "button" },
-      "tier3": { "path": [{ "role": "main" }, { "role": "region", "name": "Transfer funds" }, { "role": "form", "name": "New transfer" }, { "role": "button", "name": "Confirm transfer" }] }
+      "tier3": { "path": [{ "role": "main" }, { "role": "region", "name": "Transfer funds" }, { "role": "form", "name": "New transfer" }, { "role": "button", "name": "Confirm Transaction" }] }
     },
     {
       "key": "transferStatus",
       "intent": "the live message that reports the transfer result",
-      "scope": "closed-shadow",
+      "scope": "iframe",
       "tier1": { "role": "status", "uniqueOnPage": true },
-      "tier2": { "relation": "aria-controls", "direction": "anchor-to-target", "anchor": { "role": "button", "name": "Confirm transfer" }, "targetRole": "status" },
+      "tier2": { "relation": "aria-controls", "direction": "anchor-to-target", "anchor": { "role": "button", "name": "Confirm Transaction" }, "targetRole": "status" },
       "tier3": { "path": [{ "role": "main" }, { "role": "region", "name": "Transfer funds" }, { "role": "form", "name": "New transfer" }, { "role": "status" }] }
     }
   ],
