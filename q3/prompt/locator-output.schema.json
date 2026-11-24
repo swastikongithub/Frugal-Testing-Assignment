@@ -1,0 +1,219 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/q3/locator-output.schema.json",
+  "title": "ARIA-only multi-tier locator strategy",
+  "description": "The one JSON object the locator prompt must return. Locator fields may only hold ARIA roles, accessible names, ARIA relationship types and accessibility-tree paths.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["reasoning", "targets", "selfCheck"],
+  "properties": {
+    "reasoning": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["parseTree", "accessibilityModel", "volatilityScan", "relationshipMap"],
+      "properties": {
+        "parseTree": {
+          "description": "Step 1: every tree scope (document, then each shadow root), outermost first, with the landmarks it contains.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["scope", "depth", "landmarks"],
+            "properties": {
+              "scope": { "$ref": "#/$defs/scope" },
+              "depth": { "type": "integer", "minimum": 0, "maximum": 20 },
+              "landmarks": { "type": "array", "items": { "$ref": "#/$defs/node" } }
+            }
+          }
+        },
+        "accessibilityModel": {
+          "description": "Step 2: computed role and accessible name of every landmark, widget and named element.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["role", "name", "roleSource", "nameSource", "scope"],
+            "properties": {
+              "role": { "$ref": "#/$defs/role" },
+              "name": { "type": "string", "maxLength": 200 },
+              "roleSource": { "enum": ["explicit-role", "implicit-html"] },
+              "nameSource": { "enum": ["aria-labelledby", "aria-label", "label-element", "alt", "legend", "content", "title", "none"] },
+              "scope": { "$ref": "#/$defs/scope" },
+              "states": {
+                "type": "array",
+                "items": { "type": "string", "pattern": "^aria-(selected|expanded|pressed|checked|current|disabled|hidden|invalid|required|live)=" }
+              }
+            }
+          }
+        },
+        "volatilityScan": {
+          "description": "Step 3: generated-looking tokens seen in the input (none may appear in a locator) and the stable signals used instead.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["volatileTokensSeen", "stableSignals"],
+          "properties": {
+            "volatileTokensSeen": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 3, "maxLength": 80 } },
+            "stableSignals": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 3, "maxLength": 200 } }
+          }
+        },
+        "relationshipMap": {
+          "description": "Step 5: every ARIA IDREF relationship, both ends translated to role + name (or role + text). IDREF values are dropped.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["from", "relation", "to"],
+            "properties": {
+              "from": { "$ref": "#/$defs/anchor" },
+              "relation": { "$ref": "#/$defs/relation" },
+              "to": { "$ref": "#/$defs/anchor" }
+            }
+          }
+        }
+      }
+    },
+    "targets": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/target" }
+    },
+    "selfCheck": {
+      "description": "Step 8: every check must hold. If one does not, the strategy is revised before answering; false is never a valid value.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "noCssSelectors",
+        "noXPath",
+        "noClassOrIdValues",
+        "noDataOrStyleAttributes",
+        "noVolatileTokensInLocators",
+        "everyTier3StartsAtLandmark",
+        "everyTier3EndsAtTier1",
+        "everyTier2RelationExistsInInput"
+      ],
+      "properties": {
+        "noCssSelectors": { "const": true },
+        "noXPath": { "const": true },
+        "noClassOrIdValues": { "const": true },
+        "noDataOrStyleAttributes": { "const": true },
+        "noVolatileTokensInLocators": { "const": true },
+        "everyTier3StartsAtLandmark": { "const": true },
+        "everyTier3EndsAtTier1": { "const": true },
+        "everyTier2RelationExistsInInput": { "const": true }
+      }
+    }
+  },
+  "$defs": {
+    "scope": { "enum": ["document", "open-shadow", "closed-shadow"] },
+    "role": {
+      "description": "Concrete WAI-ARIA 1.2 roles. Abstract roles and generic / none / presentation are not locator roles.",
+      "enum": [
+        "alert", "alertdialog", "application", "article", "banner", "blockquote", "button", "caption", "cell",
+        "checkbox", "code", "columnheader", "combobox", "complementary", "contentinfo", "definition", "deletion",
+        "dialog", "document", "emphasis", "feed", "figure", "form", "grid", "gridcell", "group", "heading", "img",
+        "insertion", "link", "list", "listbox", "listitem", "log", "main", "marquee", "math", "menu", "menubar",
+        "menuitem", "menuitemcheckbox", "menuitemradio", "meter", "navigation", "note", "option", "paragraph",
+        "progressbar", "radio", "radiogroup", "region", "row", "rowgroup", "rowheader", "scrollbar", "search",
+        "searchbox", "separator", "slider", "spinbutton", "status", "strong", "subscript", "superscript", "switch",
+        "tab", "table", "tablist", "tabpanel", "term", "textbox", "time", "timer", "toolbar", "tooltip", "tree",
+        "treegrid", "treeitem"
+      ]
+    },
+    "landmarkRole": {
+      "description": "Roles a tier 3 path may start with (checked by scripts/validate-locators.ts: JSON Schema cannot say 'first item' portably).",
+      "enum": ["banner", "complementary", "contentinfo", "form", "main", "navigation", "region", "search"]
+    },
+    "relation": {
+      "enum": [
+        "aria-controls", "aria-labelledby", "aria-describedby", "aria-owns", "aria-activedescendant",
+        "aria-details", "aria-errormessage", "aria-flowto"
+      ]
+    },
+    "accessibleName": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "node": {
+      "description": "One accessibility-tree node: a role, plus its exact accessible name when it has one.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role"],
+      "properties": {
+        "role": { "$ref": "#/$defs/role" },
+        "name": { "$ref": "#/$defs/accessibleName" }
+      }
+    },
+    "anchor": {
+      "description": "The other end of an ARIA relationship: role + name, or role + text content when the role takes no name (paragraph, status, ...).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role"],
+      "properties": {
+        "role": { "$ref": "#/$defs/role" },
+        "name": { "$ref": "#/$defs/accessibleName" },
+        "text": { "type": "string", "minLength": 1, "maxLength": 300 }
+      },
+      "not": { "properties": { "name": true, "text": true }, "required": ["name", "text"] }
+    },
+    "relationLocator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["relation", "direction", "anchor", "targetRole"],
+      "properties": {
+        "relation": { "$ref": "#/$defs/relation" },
+        "direction": {
+          "description": "anchor-to-target: the anchor carries the attribute and it points at the target. target-to-anchor: the target carries it and it points at the anchor.",
+          "enum": ["anchor-to-target", "target-to-anchor"]
+        },
+        "anchor": { "$ref": "#/$defs/anchor" },
+        "targetRole": { "$ref": "#/$defs/role" }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "intent", "scope", "tier1", "tier2", "tier3"],
+      "properties": {
+        "key": { "type": "string", "pattern": "^[a-z][A-Za-z0-9]{1,40}$" },
+        "intent": { "type": "string", "minLength": 3, "maxLength": 200 },
+        "scope": { "$ref": "#/$defs/scope" },
+        "tier1": {
+          "description": "Tier 1, role mapping: role + exact accessible name. uniqueOnPage says whether that pair matches one element across every tree scope.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["role", "uniqueOnPage"],
+          "properties": {
+            "role": { "$ref": "#/$defs/role" },
+            "name": { "$ref": "#/$defs/accessibleName" },
+            "uniqueOnPage": { "type": "boolean" }
+          }
+        },
+        "tier2": {
+          "description": "Tier 2, ARIA relationship, or why none exists for this target.",
+          "oneOf": [
+            { "$ref": "#/$defs/relationLocator" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["unavailable"],
+              "properties": { "unavailable": { "type": "string", "minLength": 10, "maxLength": 300 } }
+            }
+          ]
+        },
+        "tier3": {
+          "description": "Tier 3, accessibility sub-tree path: a landmark first, the target (same role and name as tier 1) last.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path"],
+          "properties": {
+            "path": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 8,
+              "items": { "$ref": "#/$defs/node" }
+            }
+          }
+        }
+      }
+    }
+  }
+}
