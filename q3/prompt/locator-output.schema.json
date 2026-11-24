@@ -5,9 +5,10 @@
   "description": "The one JSON object the locator prompt must return. Locator fields may only hold ARIA roles, accessible names, ARIA relationship types and accessibility-tree paths.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["reasoning", "targets", "selfCheck"],
+  "required": ["analysis", "targets", "selfCheck"],
   "properties": {
-    "reasoning": {
+    "analysis": {
+      "description": "The checkable findings of method steps 1, 2, 3 and 5. It records results, not the model's private thinking.",
       "type": "object",
       "additionalProperties": false,
       "required": ["parseTree", "accessibilityModel", "volatilityScan", "relationshipMap"],
