@@ -35,12 +35,12 @@ interface ShadowPierceApi {
   roleOf(el: Element): string | null;
   nameOf(el: Element): string;
   isHidden(el: Element): boolean;
-  scopeOf(el: Element): { mode: 'document' | 'open' | 'closed'; chain: { mode: 'open' | 'closed'; hostTag: string }[] };
+  scopeOf(el: Element): { mode: 'document' | 'open' | 'closed' | 'frame'; chain: { mode: 'open' | 'closed' | 'frame'; hostTag: string }[] };
   landmarksOf(el: Element): { role: string; name: string }[];
   absolutePath(el: Element): string;
   idrefs(el: Element, attribute: string): Element[];
   text(el: Element): string;
-  stats(): { open: number; closed: number };
+  stats(): { open: number; closed: number; frames: number };
 }
 
 declare global {
@@ -77,7 +77,32 @@ export async function pierceOne(page: Page, query: RoleQuery): Promise<ElementHa
   return handles[0] as ElementHandle<Element>;
 }
 
-/** true when two handles point at the same DOM node. */
+/**
+ * The same element, as a handle Playwright can act on (click, fill, boundingBox).
+ *
+ * The deep query runs in the top window and also returns elements from the iframe nested in the closed
+ * root. Their handles belong to the top window's context, and Playwright computes boxes and hit targets
+ * from the frame of that context, so a click on such a handle lands off target and times out. This hands
+ * the element to the window of the document it lives in and takes it back through that frame, which
+ * Playwright resolves from the node itself (ownerFrame), not from a selector.
+ */
+export async function inOwnFrame(handle: ElementHandle<Element>): Promise<ElementHandle<Element>> {
+  const frame = await handle.ownerFrame();
+  if (!frame) throw new Error('element is not attached to any frame');
+  const key = '__shadowPierceHandoff';
+  await handle.evaluate((el, k) => {
+    (el.ownerDocument.defaultView as unknown as Record<string, Element>)[k] = el;
+  }, key);
+  const adopted = await frame.evaluateHandle((k) => {
+    const bag = window as unknown as Record<string, Element>;
+    const el = bag[k] as Element;
+    delete bag[k];
+    return el;
+  }, key);
+  return adopted.asElement() as ElementHandle<Element>;
+}
+
+/** true when two handles point at the same DOM node (both must come from the top window's context). */
 export async function sameNode(page: Page, a: ElementHandle<Element>, b: ElementHandle<Element>): Promise<boolean> {
   return page.evaluate(([x, y]) => x === y, [a, b] as const);
 }
