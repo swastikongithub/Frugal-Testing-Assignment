@@ -5,8 +5,8 @@ an **unlinked closed shadow root nested inside an open shadow host**. Two delive
 
 | | What it is |
 |---|---|
-| **Shadow DOM piercing** | A raw vanilla JS deep query that walks the document, every open root and the closed root, and matches elements by **ARIA role + accessible name**. It comes as a readable engine ([`src/shadow-pierce.js`](src/shadow-pierce.js)) and as a **one-line copy-paste query string** ([`src/pierce-query.min.js`](src/pierce-query.min.js)) with its one-line hook. A hook-free **CDP alternative** ([`src/cdpPierce.ts`](src/cdpPierce.ts)) uses `DOM.getDocument({pierce: true})` and `Accessibility.queryAXTree`. All three drive the form inside the closed root on 5 reloads. |
-| **CoT prompt architecture** | A Chain-of-Thought system prompt ([`prompt/locator-cot-system-prompt.md`](prompt/locator-cot-system-prompt.md)) that makes an LLM parse a raw HTML component tree and return a **three-tier, ARIA-only locator strategy**: role mapping → ARIA relationship (`aria-controls`, …) → accessibility sub-tree path. CSS, XPath, class strings, ids and `data-*` are explicitly forbidden. The answer is a strict JSON document. A validator checks it, and a resolver executes every tier on 5 fresh loads. **Run on real models: 9 of 9 answers (Haiku, Sonnet and Opus 5.5, three runs each) pass the validator and resolve on 5 fresh loads** ([results](#real-model-answers)). |
+| **Shadow DOM piercing** | The demo has the structure of the brief's snippet: an open shell, a closed root inside it, and a **nested iframe inside the closed root** holding the "Confirm Transaction" button. A raw vanilla JS deep query walks the document, every open root, the closed root and the iframe's document, and matches elements by **ARIA role + accessible name**. It comes as a readable engine ([`src/shadow-pierce.js`](src/shadow-pierce.js)) and as a **one-line copy-paste query string** ([`src/pierce-query.min.js`](src/pierce-query.min.js)) with its one-line hook. A hook-free **CDP alternative** ([`src/cdpPierce.ts`](src/cdpPierce.ts)) uses `DOM.getDocument({pierce: true})` and `Accessibility.queryAXTree`. A fourth route shows that **the nested iframe is itself a way into the closed root**, with no hook at all. All four drive the transfer on 5 reloads. |
+| **CoT prompt architecture** | A Chain-of-Thought system prompt ([`prompt/locator-cot-system-prompt.md`](prompt/locator-cot-system-prompt.md)) that makes an LLM parse a raw HTML component tree and return a **three-tier, ARIA-only locator strategy**: role mapping → ARIA relationship (`aria-controls`, …) → accessibility sub-tree path. CSS, XPath, class strings, ids and `data-*` are explicitly forbidden. The answer is a strict JSON document. A validator checks it, and a resolver executes every tier on 5 fresh loads. **Run on real models, three times each on Haiku, Sonnet and Opus 5.5: 6 of 9 answers work on 5 fresh loads, all six identical to the hand-written reference. The other 3 are caught, 2 by the validator and 1 only by executing it** ([results](#real-model-answers)). |
 
 ---
 
@@ -23,9 +23,9 @@ npm test
 
 | Command | What it does |
 |---|---|
-| `npm test` | Validator self-test (22 known-bad strategies) → `tsc --noEmit` → 18 Playwright tests (9 of them are the recorded model answers). Ends with the **Q3 EVIDENCE SUMMARY**. |
+| `npm test` | Validator self-test (23 known-bad strategies) → `tsc --noEmit` → 19 Playwright tests (9 of them are the recorded model answers). Ends with the **Q3 EVIDENCE SUMMARY**. |
 | `npm run serve` | The demo on http://127.0.0.1:5318. Reload it and watch the tags, ids and classes change in DevTools. If it is already running, `npm test` reuses it. |
-| `npm run snapshot` | Captures a fresh load into `prompt/examples/input-component.html` and `prompt/examples/user-message.txt`. |
+| `npm run snapshot` | Captures a fresh load into `prompt/examples/input-component.html` and `prompt/examples/user-message.txt`, the iframe's document included. |
 | `npm run validate -- <answer.json>` | Validates one LLM answer against the schema and the hard rules (the input defaults to `prompt/examples/input-component.html`). |
 | `npm run prompt:run -- --model <m> [--runs <n>]` | Runs the prompt on a real model through the Claude Code CLI and records the answer and its provenance under `prompt/runs/` (see [*Real model answers*](#real-model-answers)). |
 | `npm run report` | Opens the HTML report (trace, screenshot and video of every test). |
@@ -34,11 +34,13 @@ npm test
 
 ## The demo micro-frontend
 
-[`site/app.js`](site/app.js) mounts two custom elements. On every load it regenerates:
+[`site/app.js`](site/app.js) mounts two custom elements, and the vault's closed root loads
+[`site/confirm-frame.html`](site/confirm-frame.html) in an iframe. On every load, both documents regenerate:
 
 - the custom-element tag names (`mf-<5>-<5>`),
 - every id, and so every IDREF (`for`, `aria-controls`, `aria-labelledby`, `aria-describedby`),
-- every class (`css-<5>`, like CSS-in-JS output),
+- every class (`css-<5>` and `cta-<5>`, like CSS-in-JS output),
+- the confirm button's `data-test-id` (`dyn-uuid-<n>`, as in the brief) and the iframe's `src` query,
 - 0–2 anonymous wrapper `<div>`s around most blocks, so absolute paths change too.
 
 Only the accessibility semantics stay the same:
@@ -55,15 +57,29 @@ document
             └─ (0-2 wrapper divs)
                └─ <mf-?????-?????>            vault host
                   └─ #shadow-root (closed)    kept only in a local variable: "unlinked"
-                     └─ form "New transfer"   textbox "Amount", combobox "To account",
-                                              button "Confirm transfer" (aria-controls → status,
+                     └─ form "New transfer"   textbox "Amount", combobox "To account"
+                        └─ iframe "Transaction confirmation"   same origin, its own document
+                           └─ #document       button "Confirm Transaction" (aria-controls → status,
                                               aria-describedby → note), status (aria-live)
 ```
+
+This is the structure of the brief's snippet, with the same kind of volatile names:
+
+| Brief's snippet | Demo |
+|---|---|
+| `<shell-container id="viewport-root">` + `#shadow-root (open)` | `<mf-?????-?????>` shell host + open root |
+| `<micro-frontend-wrapper class="sub-module-x9">` + `#shadow-root (closed)` | `<mf-?????-?????>` vault host + closed root |
+| `<nested-iframe src="...">` | `<iframe title="Transaction confirmation" src="/confirm-frame.html?session=?????">` |
+| `<button class="cta-execute" data-test-id="dyn-uuid-9921">Confirm Transaction</button>` | `<button class="cta-?????" data-test-id="dyn-uuid-????">Confirm Transaction</button>` |
 
 The vault calls `this.attachShadow({ mode: 'closed' })` and keeps the result only in the closures of
 `connectedCallback`. So `host.shadowRoot` is `null`, and nothing on the host, on `window`, in a slot or
 in an event references the root. The test checks this on every load: own and inherited host properties,
 and every `window` property.
+
+The button sits in the iframe together with its note and status, because an IDREF only resolves inside
+its own document. The amount and account stay in the closed root. A click asks the vault for the result
+over `postMessage`, and the vault answers with the status text.
 
 ---
 
@@ -92,6 +108,22 @@ and every `window` property.
 - **Playwright and XPath.** Playwright's CSS and role engines pierce **open** roots, not closed ones.
   XPath (`document.evaluate`) pierces no shadow root at all. Both are measured: 0 hits inside the
   closed root on every load.
+- **The iframe is another document.** It has its own `window`, its own `Element.prototype` and its own
+  DOM. An init script runs in every frame, so the hook is installed in the iframe too, and the engine
+  reads that frame's own root map. Nodes from the iframe fail `instanceof ShadowRoot` in the top
+  window, so the engine checks node types instead.
+- **`window.frames` hides it.** An iframe inside a shadow tree is not a "document-tree child navigable",
+  so in the top window `window.length` is 0 and `window[0]` is undefined. The test checks this.
+  Playwright's frame tree still lists the iframe, because that list comes from the browser, not the DOM.
+- **…and the iframe is a way in.** Code running in the iframe can call `frameElement.getRootNode()`.
+  The iframe element sits in the closed root, so that returns the closed `ShadowRoot` itself:
+  "closed" hides `host.shadowRoot`, nothing more. Route 4 below uses this.
+- **Handles belong to a frame.** A handle the top window creates for an element of the iframe makes
+  Playwright compute from the wrong frame: the bounding box is off by the iframe's offset, and a click
+  times out. This was measured while building the change. `inOwnFrame()` in
+  [`tests/framework/pierce.ts`](tests/framework/pierce.ts) hands the element to its own frame first.
+- **Chrome's AX query stays in one document.** `Accessibility.queryAXTree` on the top document finds
+  nothing inside the iframe, so the CDP route queries every document.
 
 ### 1. The deep query engine: `src/shadow-pierce.js`
 
@@ -101,14 +133,15 @@ Load it before the page's scripts, then query by role and accessible name:
 await page.addInitScript({ path: 'src/shadow-pierce.js' });
 await page.goto('/');
 const button = await page.evaluateHandle(() =>
-  window.__shadowPierce.query({ role: 'button', name: 'Confirm transfer' }));
-await button.asElement()!.click();
+  window.__shadowPierce.query({ role: 'button', name: 'Confirm Transaction' }));
+await (await inOwnFrame(button.asElement()!)).click();   // the button is in the iframe
 ```
 
 - **Hook.** It patches `attachShadow` and stores every root in a `WeakMap` keyed by host. Nothing is
   added to the host, and detached hosts can be garbage-collected.
-- **Walk.** It walks the flat tree with `TreeWalker`, entering `host.shadowRoot` or the captured root
-  at any depth. It uses no selectors at all, so it never reads a tag name, id or class.
+- **Walk.** It walks the flat tree with `TreeWalker`, entering `host.shadowRoot`, the captured root
+  and the `contentDocument` of a same-origin iframe, at any depth. In an iframe it reads that frame's
+  own root map. It uses no selectors at all, so it never reads a tag name, id or class.
 - **Role.** The explicit `role` first, then the implicit HTML-AAM mapping. This includes the context
   rules: `header`/`footer` are only banner/contentinfo at top level, and `section`/`form` are only a
   region/form when named.
@@ -117,12 +150,12 @@ await button.asElement()!.click();
   `placeholder`. Elements that are hidden (`aria-hidden`, `hidden`, `display:none`,
   `visibility:hidden` via `checkVisibility`) are skipped unless `includeHidden` is set.
 - **API.** `query`, `queryAll`, `queryPath` (tier 3 paths), `queryRelation` (tier 2 relations),
-  `roleOf`, `nameOf`, `scopeOf` (`open`/`closed` chain), `landmarksOf`, `absolutePath` (evidence only),
-  `stats`.
+  `roleOf`, `nameOf`, `scopeOf` (`open` / `closed` / `frame` chain), `landmarksOf`, `absolutePath`
+  (evidence only, `#document` marks a frame boundary), `stats`.
 
 The role/name subset is checked against two independent oracles in the run: **Playwright `getByRole`**
 (19 document and open-root elements return the same node) and **Chrome's own accessibility tree** over
-CDP (every role and name pair inside the closed root is equal).
+CDP (every role and name pair behind the closed boundary, in the closed root and its iframe, is equal).
 
 ### 2. The copy-paste query string
 
@@ -134,25 +167,25 @@ scripts:
 ```
 
 **Query**: [`src/pierce-query.min.js`](src/pierce-query.min.js). It takes `(role, name)` and returns the
-first visible match from the document, open roots and hooked closed roots. Pass `name` as `null` to
-match any name:
+first visible match from the document, open roots, hooked closed roots and same-origin iframe documents
+(`sr(e)||e.contentDocument`). Pass `name` as `null` to match any name:
 
 ```js
-(role,name)=>{const M=window[Symbol.for('shadow-pierce.roots')],sr=e=>e.shadowRoot||(M&&M.get(e))||null,T={A:'link',BUTTON:'button',SELECT:'combobox',TEXTAREA:'textbox',NAV:'navigation',MAIN:'main',FORM:'form',SECTION:'region',UL:'list',LI:'listitem'},I={button:'button',submit:'button',reset:'button',checkbox:'checkbox',radio:'radio'},ro=e=>e.getAttribute('role')||(e.tagName==='INPUT'?I[e.type]||'textbox':/^H[1-6]$/.test(e.tagName)?'heading':T[e.tagName]),n=s=>(s||'').replace(/\s+/g,' ').trim(),nm=e=>{const ids=e.getAttribute('aria-labelledby'),root=e.getRootNode();return n(ids?ids.split(/\s+/).map(i=>(root.getElementById(i)||{}).textContent).join(' '):e.getAttribute('aria-label')||(e.labels&&e.labels.length?[...e.labels].map(l=>l.textContent).join(' '):e.textContent))},q=[document];while(q.length){const s=q.shift(),w=document.createTreeWalker(s,1);for(let e=w.nextNode();e;e=w.nextNode()){if(ro(e)===role&&(name==null||nm(e)===name)&&e.checkVisibility())return e;const r=sr(e);if(r)q.push(r)}}return null}
+(role,name)=>{const K=Symbol.for('shadow-pierce.roots'),sr=e=>{const M=e.ownerDocument.defaultView[K];return e.shadowRoot||(M&&M.get(e))||null},T={A:'link',BUTTON:'button',SELECT:'combobox',TEXTAREA:'textbox',NAV:'navigation',MAIN:'main',FORM:'form',SECTION:'region',UL:'list',LI:'listitem'},I={button:'button',submit:'button',reset:'button',checkbox:'checkbox',radio:'radio'},ro=e=>e.getAttribute('role')||(e.tagName==='INPUT'?I[e.type]||'textbox':/^H[1-6]$/.test(e.tagName)?'heading':T[e.tagName]),n=s=>(s||'').replace(/\s+/g,' ').trim(),nm=e=>{const ids=e.getAttribute('aria-labelledby'),root=e.getRootNode();return n(ids?ids.split(/\s+/).map(i=>(root.getElementById(i)||{}).textContent).join(' '):e.getAttribute('aria-label')||(e.labels&&e.labels.length?[...e.labels].map(l=>l.textContent).join(' '):e.textContent))},q=[document];while(q.length){const s=q.shift(),w=(s.ownerDocument||s).createTreeWalker(s,1);for(let e=w.nextNode();e;e=w.nextNode()){if(ro(e)===role&&(name==null||nm(e)===name)&&e.checkVisibility())return e;const r=sr(e)||e.contentDocument;if(r)q.push(r)}}return null}
 ```
 
-Usage: `(<query string>)('button', 'Confirm transfer')`. In Playwright:
+Usage: `(<query string>)('button', 'Confirm Transaction')`. In Playwright:
 
 ```ts
 await page.addInitScript({ content: HOOK });
 const el = await page.evaluateHandle(`(${QUERY})('textbox', 'Amount')`);
 ```
 
-- **Tested.** The suite runs a page that has **only** these two strings: no engine and no helpers. It
-  fills, submits and reads the closed-root form on 5 reloads. Then it checks that the string returns
-  the same node as the full engine for 11 targets.
+- **Tested.** The suite runs a page that has **only** these two strings: no engine and no helpers. On
+  5 reloads it fills the amount in the closed root, clicks the button in the iframe and reads the
+  status. Then it checks that the string returns the same node as the full engine for 11 targets.
 - **Same root map.** Both hooks share the global root map (`Symbol.for('shadow-pierce.roots')`), so
-  either may load first.
+  either may load first. Each frame has its own; the string looks up the one of the element's frame.
 - **Smaller role/name subset.** The string covers explicit role, the common implicit roles,
   `aria-labelledby`, `aria-label`, `<label>`, then text content. For full accname behaviour, use the
   engine.
@@ -167,15 +200,31 @@ the API are absent on every load.
 
 | Step | CDP call | Result in the run |
 |---|---|---|
-| Map the shadow boundaries | `DOM.getDocument({depth: -1, pierce: true})` → `shadowRoots[].shadowRootType` | `open` (in document) > `closed` (in the open root), 5/5 loads |
-| Find by role + name | `Accessibility.queryAXTree({backendNodeId: <document>, role, accessibleName})` | `textbox "Amount"`, `combobox "To account"`, `button "Confirm transfer"`, each with shadow chain `open > closed` |
+| Map the boundaries | `DOM.getDocument({depth: -1, pierce: true})` → `shadowRoots[].shadowRootType` and `contentDocument` | `open` (in document) > `closed` (in the open root) > iframe document (in the closed root), 5/5 loads |
+| Find by role + name | `Accessibility.queryAXTree({backendNodeId: <document>, role, accessibleName})`, once per document (top + iframe): it does not cross into a frame | `textbox "Amount"`, `combobox "To account"` with chain `open > closed`; `button "Confirm Transaction"` and `status` with `open > closed > frame` |
 | Type | `DOM.focus` + real key events | Amount filled |
-| Click | `DOM.scrollIntoViewIfNeeded` + `DOM.getContentQuads` + real mouse click | Transfer submitted |
+| Click | `DOM.scrollIntoViewIfNeeded` + `DOM.getContentQuads` (page coordinates, also inside the iframe) + real mouse click | Transfer confirmed |
 | Read | `DOM.resolveNode` + `Runtime.callFunctionOn` | Status text verified, 5/5 loads |
 
 The `<select>` is set on its remote object through `Runtime.callFunctionOn`, followed by `input` and
 `change` events. Keyboard selection on a collapsed `<select>` differs by platform. CDP is Chromium
 only.
+
+### 4. The nested iframe as a hook-free way in (`tests/frame-route.spec.ts`)
+
+The brief's own structure has a weak point: the iframe inside the closed root.
+
+1. Nothing is injected into the page. In the top window, `window.length` is 0.
+2. Playwright's frame tree lists the iframe anyway. The test picks the frame that has
+   `getByRole('button', { name: 'Confirm Transaction' })`, by role and not by selector.
+3. In that frame, `window.frameElement.getRootNode()` returns the closed `ShadowRoot`, while
+   `host.shadowRoot` is still `null`.
+4. From that root the test finds the Amount field by its label text, fills it, clicks the button
+   through the frame's `getByRole`, and reads the status. This works on 5/5 loads.
+
+So a closed root keeps out scripts of the top window, but not scripts of a same-origin frame inside it.
+For a real micro-frontend, any script that runs in such a frame (an analytics tag, a third-party
+widget) can reach the closed root this way.
 
 ---
 
@@ -186,10 +235,11 @@ only.
 | [`prompt/locator-cot-system-prompt.md`](prompt/locator-cot-system-prompt.md) | The system prompt (whole file). |
 | [`prompt/locator-output.schema.json`](prompt/locator-output.schema.json) | JSON Schema 2020-12 of the answer. It is embedded verbatim in the prompt, and a test checks that byte-for-byte. |
 | [`prompt/examples/user-message.txt`](prompt/examples/user-message.txt) | The user message: 6 targets by **intent** (not by name), plus the captured component. |
-| [`prompt/examples/input-component.html`](prompt/examples/input-component.html) | One live load, captured by `npm run snapshot`. Shadow roots are serialised as declarative templates with `Element.getHTML({shadowRoots})`. The closed root is included because the hook captured it. |
+| [`prompt/examples/input-component.html`](prompt/examples/input-component.html) | One live load, captured by `npm run snapshot`. Shadow roots are serialised as declarative templates with `Element.getHTML({shadowRoots})`. The closed root is included because the hook captured it. The iframe's document is serialised inside the `<iframe>`, after a `#document` line, as DevTools shows it. |
 | [`prompt/examples/reference-output.handwritten.json`](prompt/examples/reference-output.handwritten.json) | **Hand-written** reference answer (written while building this, **not** produced by a model run of the prompt). It is used as the validator's known-good base and to test the resolver. |
 | [`prompt/runs/`](prompt/runs) | **Real model answers**, one folder per run: `answer.txt` exactly as the model returned it, and `meta.json` with its provenance. Written by [`scripts/run-prompt.ts`](scripts/run-prompt.ts). |
 | [`prompt/history/v1/`](prompt/history/v1/README.md) | The first prompt version's runs, and why it was replaced (Sonnet and Opus refused it). |
+| [`prompt/history/v2/`](prompt/history/v2/README.md) | Prompt v2's nine runs on the component before the nested iframe (9/9 valid), and why v3 replaced it. |
 | [`prompt/examples/llm-output.pasted.json`](prompt/examples/llm-output.pasted.json) | Slot for an answer from **any other model** (for example a non-Claude one). While it holds the placeholder, its test is skipped and says so. |
 
 ### How the prompt forces the behaviour
@@ -207,12 +257,16 @@ only.
     preferred. If no ARIA relation touches the target, it is `{unavailable: <why>}`: a `<label for>`
     is not an ARIA relation, and the prompt forbids inventing one.
   - **Tier 3, accessibility sub-tree path:** it must start at a landmark and end at tier 1. Shadow
-    boundaries don't appear in it, because the accessibility tree is flat.
+    and iframe boundaries don't appear in it: the accessibility tree is flat, and an iframe's document
+    joins it where the iframe element sits.
+- **Four tree scopes.** `document`, `open-shadow`, `closed-shadow` and `iframe`. The prompt explains the
+  `#document` convention and that each shadow root and iframe document is its own id scope, so an
+  IDREF never crosses into or out of the iframe.
 - **Eight hard rules (R1–R8)** forbid, by name:
   - CSS selectors and fragments, and selector engines (`css=`, `pierce/`);
   - absolute and relative XPath, axes, predicates and `text()`;
-  - raw class strings, ids, IDREF values and custom tag names;
-  - `data-*`, `style` and event attributes;
+  - raw class strings, ids, IDREF values, custom tag names and URLs;
+  - `data-*` (including the `data-test-id` the brief shows), `style` and event attributes;
   - positional reasoning;
   - visual properties;
   - non-semantic roles;
@@ -238,13 +292,13 @@ only.
 | `//`, `/html`, axes, `@attr`, `text()`, `contains()`, `[n]` | `FORBIDDEN_XPATH` |
 | `class=`, `id=`, `getElementById`, `className` | `FORBIDDEN_CLASS_OR_ID` |
 | `data-*`, `testid`, `style=`, `on*=` | `FORBIDDEN_DATA_OR_STYLE` |
-| Any id, IDREF, class or custom tag from the **input HTML**, or any token the model itself listed in `volatileTokensSeen` | `VOLATILE_TOKEN` |
+| Any id, IDREF, class, `data-*` value (the `dyn-uuid` test id), iframe `src` or custom tag from the **input HTML**, or any token the model itself listed in `volatileTokensSeen` | `VOLATILE_TOKEN` |
 | Tier 3 does not start at a landmark / does not end at tier 1 | `TIER3_NOT_LANDMARK` / `TIER3_END_MISMATCH` |
 | Tier 2 lands on another role / uses a relation absent from the input | `TIER2_ROLE_MISMATCH` / `TIER2_RELATION_NOT_IN_INPUT` |
 | A name that is not text or a label anywhere in the input (invented) | `NAME_NOT_IN_INPUT` |
 | Target scope not in the parse tree, duplicate keys | `SCOPE_NOT_IN_PARSE_TREE` / `DUPLICATE_KEY` |
 
-`--self-test` mutates the reference into 22 known-bad strategies, covering 13 error codes, and each one
+`--self-test` mutates the reference into 23 known-bad strategies, covering 13 error codes, and each one
 must be rejected with its expected code. The reference itself must pass. This runs first in `npm test`,
 and again as a Playwright test so it shows in the summary. Answers wrapped in a markdown fence are
 accepted with a `FENCED_OUTPUT` warning. Anything else that isn't JSON is `NOT_JSON`.
@@ -254,20 +308,22 @@ accepted with a `FENCED_OUTPUT` warning. Anything else that isn't JSON is `NOT_J
 | Scope the answer claims | Tier 1 | Tier 2 | Tier 3 |
 |---|---|---|---|
 | `document` / `open-shadow` | Playwright `getByRole(role, {name, exact})` | deep query `queryRelation` (IDREF in the element's own tree scope) | Playwright chained `getByRole` |
-| `closed-shadow` | deep query `queryAll` | deep query `queryRelation` | deep query `queryPath` |
+| `closed-shadow` / `iframe` | deep query `queryAll` | deep query `queryRelation` | deep query `queryPath` |
 
 On each of 5 fresh loads, for every target:
 
 - tier 3 must match exactly one element;
 - tier 1 (when `uniqueOnPage`) and tier 2 must match that same single element;
-- the element's real scope (`document` / `open` / `closed`) must equal the scope the answer claimed.
+- the element's real scope (`document` / `open` / `closed` / `frame`) must equal the scope the answer
+  claimed.
 
-After that, the transfer form is filled, submitted and its status read through the tier-3 handles. As a
-baseline, plain `getByRole` must find **none** of the closed-shadow targets.
+After that, the transfer is driven through the tier-3 handles: amount and account filled in the closed
+root, the button clicked in the iframe (through `inOwnFrame`), the status read. As a baseline, plain
+`getByRole` must find **none** of the targets behind the closed root.
 
 ### Real model answers
 
-The prompt was run three times each on Claude Haiku 5.5, Sonnet 5.5 and Opus 5.5:
+The current prompt (v3) was run three times each on Claude Haiku 5.5, Sonnet 5.5 and Opus 5.5:
 
 ```bash
 npm run prompt:run -- --model haiku --runs 3      # also sonnet, opus, or a full model id; --effort is optional
@@ -283,50 +339,64 @@ claude -p --model <m> --system-prompt-file prompt/locator-cot-system-prompt.md -
 
 - **What the model gets.** The model gets the system prompt and the user message, and nothing else it
   could use: no tools, no MCP servers, no files and no project instructions. The CLI does add a fixed
-  preamble of its own, about 780 tokens, which is included in the input counts below.
+  preamble of its own, about 780 tokens, which is included in the input counts.
 - **What is recorded.** Each run is saved to `prompt/runs/<served model id>/run-<n>/`:
   - `answer.txt`: the model's final text, byte for byte;
-  - `meta.json`: the model requested and served, CLI version, exact command, timing, tokens, and the
-    sha256 of the system prompt, user message, component and answer.
-- **How it is tested.** `npm test` finds every recorded run and holds it to the same bar as the
-  reference. It also reports whether the prompt, user message and component are still the ones the
-  run was made with.
+  - `meta.json`: the model requested and served, CLI version, exact command, timing, tokens, the
+    sha256 of the system prompt, user message, component and answer, and the validator's verdict when
+    the run was recorded (`verdictWhenRecorded`).
+- **How it is tested.** `npm test` finds every recorded run, and also reports whether the prompt, user
+  message and component are still the ones the run was made with:
+  - answers the validator accepted are replayed like the reference;
+  - answers it rejected are not executed; their test checks they are still rejected, with the same
+    error codes;
+  - an accepted answer that fails on the live page is listed in
+    [`prompt/runs/known-replay-failures.json`](prompt/runs/known-replay-failures.json) with the check it
+    failed and why. Its test checks that it still fails there, and fails if the answer starts to work.
 
 Results (2026-11-24, Claude Code CLI 2.1.331, default effort; per-run rows are in
 [`EVIDENCE.md`](EVIDENCE.md)):
 
-| Model | Validator | Replay on 5 fresh loads, every run | Time per run | Output tokens (of which thinking) | Cost per run, as the CLI reports it |
+| Model | Validator | On the live page (5 fresh loads) | Time per run | Output tokens (of which thinking) | Cost per run, as the CLI reports it |
 |---|---|---|---|---|---|
-| Haiku 5.5 | 3/3 VALID, 0 warnings | 80/80 tier checks, 30/30 scope claims, 5/5 transfers, 0 `getByRole` hits in the closed root | 42–53 s | 11 410–14 180 (7 721–9 825) | $0.006–0.009 |
-| Sonnet 5.5 | 3/3 VALID, 0 warnings | same | 33–39 s | 6 114–6 848 (2 155–3 026) | $0.07–0.11 |
-| Opus 5.5 | 3/3 VALID, 0 warnings | same | 70–79 s | 9 151–10 330 (5 066–6 154) | $0.19–0.30 |
+| Haiku 5.5 | 2/3 accepted | 1 works (run-3); 1 accepted but fails (run-2) | 11–55 s | 3 401–14 797 (0–10 406) | $0.002–0.008 |
+| Sonnet 5.5 | 3/3 accepted | 3 work: 80/80 tier checks, 30/30 scope claims, 5/5 transfers each | 33–37 s | 6 071–6 432 (2 301–2 642) | $0.06–0.11 |
+| Opus 5.5 | 2/3 accepted | 2 work | 74–92 s | 9 173–10 416 (5 129–6 197) | $0.19–0.31 |
 
 Fable 5.2 was not run: on this plan it needs usage credits.
 
 What the answers show:
 
-- **They converge.** 8 of the 9 answers use exactly the same locators as the hand-written reference,
-  for all 6 targets: the same scope, the same tier 1 role and name, the same tier 2, and the same tier 3
-  path. Each model-answer test prints this as `locators vs hand-written reference`.
-  - Tier 2 is `aria-controls` for the tab/panel pairs and for button → status. It is `unavailable`
-    for the amount and account fields, which only have a `<label for>`.
-  - The ninth answer (Haiku run-1) differs in one way: its tier 3 paths start at the named `region`
-    landmark instead of `main`. That is still landmark-first, and it resolves too.
-  - The models never saw the reference: the prompt's only example is a different component.
-- **Names were computed, not copied.** The user message asks for targets by intent ("the button that
-  submits the transfer"). Every model derived the accessible names itself, and `NAME_NOT_IN_INPUT` never
-  fired.
+- **All six working answers are identical to the hand-written reference.** For every target they give
+  the same scope (`iframe` for the button and the status), the same tier 1 role and name, the same
+  tier 2, and the same tier 3 path through the iframe boundary:
+  `main > region "Transfer funds" > form "New transfer" > button "Confirm Transaction"`. Each
+  model-answer test prints this as `locators vs hand-written reference`. The models never saw the
+  reference: the prompt's only example is a different component.
+- **The three that fail are caught at two different layers.**
+  - **Haiku run-1** stopped its tier 3 paths at the frame boundary: just `button "Confirm Transaction"`
+    and `status`. It then reported `selfCheck.everyTier3StartsAtLandmark: false`, which the schema
+    forbids. The validator rejected it with 4 `SCHEMA` errors.
+  - **Opus run-2** had the right locators. One pattern description in `volatileTokensSeen` was 81
+    characters long, in a list whose entries the schema caps at 80, and the cap was in the schema the
+    model was given. It was rejected for that one character. The contract was not loosened afterwards.
+  - **Haiku run-2** passes the validator, but it gives the amount input the role `spinbutton`, from
+    `inputmode="decimal"`. An input with no `type` is a `textbox`, so nothing on the page matches and
+    the replay stops on load 1. Only executing the strategy shows this.
+- **Thinking made the difference for Haiku.** Every Haiku answer recorded here that failed came from a
+  run with 0 thinking tokens: one in v1 and two in v3, about 10–12 s each. Every Haiku run that used
+  thinking produced an accepted answer: 5 runs, from v1 to v3. That is too few runs to measure a rate,
+  but the pattern is consistent.
 - **Nothing is taken on trust.** The validator recomputes all eight self-check claims, and the resolver
-  executes every tier on loads the model never saw. Both passed for every answer.
+  executes every tier on loads the model never saw.
 
-**Why the prompt is v2.** The first version asked the model to write its chain of thought out in a
-`reasoning` object. Haiku answered (2 of 3 valid), but Sonnet and Opus refused before answering,
-because their safeguards flagged the request as `reasoning_extraction`. v2 changes only that framing.
-The model thinks privately, and `analysis` (renamed from `reasoning`) holds each step's checkable
-findings. The steps, rules and checks are unchanged. This also fits the brief better, because a
-finding can be checked against the input and a transcript can't.
-The change was made once and not tuned against the classifier. The full record, with the verbatim
-refusals and request IDs, is in [`prompt/history/v1/`](prompt/history/v1/README.md).
+**The prompt's versions.**
+
+| Version | What changed | Recorded result |
+|---|---|---|
+| v1 | — | Sonnet and Opus refused it as `reasoning_extraction`, because it asked for a written-out chain of thought. Haiku: 2/3 valid. ([`prompt/history/v1/`](prompt/history/v1/README.md)) |
+| v2 | Only the framing: the model thinks privately, and `analysis` (renamed from `reasoning`) holds each step's checkable findings. A finding can be checked against the input; a transcript can't. Made once, not tuned against the classifier. | 9/9 valid on the component before the iframe. ([`prompt/history/v2/`](prompt/history/v2/README.md)) |
+| v3 | The demo gained the brief's nested iframe, so the prompt gained the `iframe` scope, the `#document` convention, and frame boundaries that are transparent in tier 3. | The results above. |
 
 ### Running the prompt on any other model
 
@@ -349,13 +419,15 @@ warnings, which are expected because the tokens changed.
 | PDF requirement | Implementation | Evidence in the run |
 |---|---|---|
 | Micro-frontend whose node segment names change on every DOM refresh | [`site/app.js`](site/app.js): random tags, ids/IDREFs, classes, wrapper depth per load | 5/5 distinct shell tags, vault tags, IDREFs, classes and absolute paths over 5 reloads |
-| Closed shadow root **nested inside a secondary open shadow host** | Vault (closed) inside the shell's open root | `scopeOf` chain `closed` inside `open`, every load; CDP boundaries `open > closed` |
+| Closed shadow root **nested inside a secondary open shadow host** | Vault (closed) inside the shell's open root | `scopeOf` chain `frame` < `closed` < `open`, every load; CDP boundaries `open > closed > frame` |
+| The brief's snippet: a **nested iframe** in the closed root, button "Confirm Transaction" with a `cta-*` class and a `dyn-uuid` test id | [`site/confirm-frame.html`](site/confirm-frame.html) + [`confirm-frame.js`](site/confirm-frame.js), loaded by the vault | Engine, compact string and CDP each click the button inside the iframe, 5/5 loads; `window.frames` lists 0 frames |
 | **Unlinked** closed root | Root kept only in closures | `vault.shadowRoot === null` 5/5; 0 host or `window` properties reference it |
 | **Raw vanilla JS query string** that **dynamically traverses** it | [`src/pierce-query.min.js`](src/pierce-query.min.js) + [`src/pierce-hook.min.js`](src/pierce-hook.min.js) (one line each), full engine [`src/shadow-pierce.js`](src/shadow-pierce.js) | Compact strings alone drive the closed form 5/5. Same node as the engine 11/11. Engine drives it 5/5 |
 | (extra) Hook-free alternative | [`src/cdpPierce.ts`](src/cdpPierce.ts) | 5/5 transfers with no script injected |
-| **CoT system prompt** that makes an LLM **parse raw HTML component trees** | [`prompt/locator-cot-system-prompt.md`](prompt/locator-cot-system-prompt.md): eight steps, whose findings (parse tree, accessibility model, volatility scan, relationship map) go into `analysis` | Prompt test: 8 steps, schema embedded verbatim, few-shot answer valid. Real runs: 9/9 answers from Haiku, Sonnet and Opus 5.5 valid ([`prompt/runs/`](prompt/runs)) |
-| **Multi-tiered strategy** from **role mappings, aria-controls relationships, accessibility sub-trees** | Tier 1 / tier 2 / tier 3 contracts in the prompt and [schema](prompt/locator-output.schema.json) | The reference and all 9 model answers: every tier resolves to the same single element, 5/5 loads, 80/80 tier checks each |
-| **Explicitly forbidding** CSS attributes, absolute structural XPaths, raw class strings | Rules R1–R4 (+ R5–R8) in the prompt; [`scripts/validate-locators.ts`](scripts/validate-locators.ts) enforces them | Self-test: 22/22 known-bad strategies rejected with the right code |
+| (extra) The nested iframe as a way into the closed root | [`tests/frame-route.spec.ts`](tests/frame-route.spec.ts): Playwright frame tree + `frameElement.getRootNode()` | Closed root reached 5/5 with no hook; 5/5 transfers |
+| **CoT system prompt** that makes an LLM **parse raw HTML component trees** | [`prompt/locator-cot-system-prompt.md`](prompt/locator-cot-system-prompt.md): eight steps, whose findings (parse tree, accessibility model, volatility scan, relationship map) go into `analysis` | Prompt test: 8 steps, schema embedded verbatim, few-shot answer valid. Real runs on Haiku, Sonnet and Opus 5.5: 7/9 accepted, 6/9 work on the live page ([`prompt/runs/`](prompt/runs)) |
+| **Multi-tiered strategy** from **role mappings, aria-controls relationships, accessibility sub-trees** | Tier 1 / tier 2 / tier 3 contracts in the prompt and [schema](prompt/locator-output.schema.json) | The reference and the 6 working model answers: every tier resolves to the same single element, 5/5 loads, 80/80 tier checks each |
+| **Explicitly forbidding** CSS attributes, absolute structural XPaths, raw class strings | Rules R1–R4 (+ R5–R8) in the prompt; [`scripts/validate-locators.ts`](scripts/validate-locators.ts) enforces them | Self-test: 23/23 known-bad strategies rejected with the right code |
 | Strategies survive volatile classes / random ids | Resolver runs each strategy against 5 new loads, never the captured one | 0 volatile tokens accepted; transfer driven through tier 3 on 5/5 loads |
 
 ---
@@ -387,10 +459,19 @@ warnings, which are expected because the tokens changed.
   which strict Ajv flags and several structured-output APIs don't support. The validator checks it
   instead, as `TIER3_NOT_LANDMARK`.
 - **Targets are given by intent, not by name.** The user message says "the button that submits the
-  transfer", not "Confirm transfer", so the model has to compute the accessible name itself. Invented
+  transfer", not "Confirm Transaction", so the model has to compute the accessible name itself. Invented
   names are caught as `NAME_NOT_IN_INPUT`.
+- **Act on an element through its own frame.** The deep query runs in the top window and returns
+  elements of the iframe too. Comparing nodes works from there, but Playwright actions need the
+  element's own frame, so `inOwnFrame()` hands it over through that frame's `window`. It doesn't use a
+  selector, and the iframe's `window` is never exposed to the top page.
 - **Strategies are executed, not just validated.** A strategy can be schema-valid and still wrong, so
-  the resolver runs it on five loads the model never saw.
+  the resolver runs it on five loads the model never saw. Haiku run-2 is a real case: a valid answer
+  with the wrong role for one field, which only the replay catches.
+- **Failed model answers stay in the suite.** Hiding them would overstate the prompt, and leaving the
+  suite red would bury the real result. A rejected answer is checked to stay rejected for the same
+  reasons, and a known replay failure is checked to keep failing at the same check. Either test fails
+  if the answer's outcome changes.
 
 ## Interpretations (where the brief was ambiguous)
 
@@ -403,15 +484,24 @@ warnings, which are expected because the tokens changed.
    (and so IDREFs), classes and wrapper depth are regenerated on every page load. Roles, names and ARIA
    relationship types stay fixed, as they do on a real site between releases.
 3. **"Unlinked"**: no reference to the closed root outside the component's own closures. `host.shadowRoot`
-   is `null`, and no property, global, slot or event exposes it. The test verifies this.
+   is `null`, and no property, global, slot or event exposes it. The test verifies this. The nested
+   iframe does not change that on the component's side, but the platform gives code inside the iframe
+   a path back to the root (`frameElement.getRootNode()`, route 4).
 4. **"Non-visual semantic ARIA models"**: roles (explicit and implicit), accessible names, ARIA relationship
    attributes as relationship *types*, and landmark paths. Visible text is used only where accname takes
    it from content (for example a button's label) or as the text of a relationship anchor.
 5. **"Forces an LLM"**: a prompt alone can't force anything, so it is backed by a strict schema, a
    validator and an executor that reject non-compliant answers.
-6. **Model output.** The reference strategy was written by hand while building this, and its file name
+6. **The snippet's `<nested-iframe src="...">`**: read as a real same-origin `<iframe>`, since it has a
+   `src`, rather than as a custom element of that name. This is the harder reading: a shadow-only walker
+   stops at the frame boundary. The engine handles same-origin frames. A cross-origin iframe is out of
+   reach of page JS by design, and out of scope here.
+7. **Model output.** The reference strategy was written by hand while building this, and its file name
    says so. The model answers in `prompt/runs/` are real: each is the CLI's result text, unedited, and
-   its `meta.json` records the model that served it. They were produced through the Claude Code CLI
+   its `meta.json` records the model that served it. The nine current runs were recorded by the runner
+   just before it learnt to write `verdictWhenRecorded`, so that field was added to their `meta.json`
+   afterwards by the same code (`verdictOf(validateFile(...))`) against the same inputs. It matches what
+   the runner printed for each run. They were produced through the Claude Code CLI
    because no API key was available. The CLI's own ~780-token preamble is the one difference from a
    bare API call. Any other model can be tested through `llm-output.pasted.json`.
 
@@ -427,35 +517,41 @@ Output of `npm install && npx playwright install chromium && npm test` is in [`E
 
 1. **Output**
    - Run `npm test`. Point out:
-     - the validator self-test table (22 rejected, reference accepted);
-     - the per-load deep-query lines: new tags and IDREFs on every load, the `#shadow-root(closed)`
-       absolute paths, the transfer status;
-     - the CDP lines;
+     - the validator self-test table (23 rejected, reference accepted);
+     - the per-load deep-query lines: new tags, IDREFs and `dyn-uuid` test ids on every load, the
+       absolute paths through `#shadow-root(closed)` and `iframe/#document`, the transfer status;
+     - the CDP lines (`open > closed > iframe`) and the `[frame-route]` lines (the closed root reached
+       through the iframe, with no hook);
      - the **Q3 EVIDENCE SUMMARY**: `vault.shadowRoot null: 5/5`, `getByRole/XPath hits in closed root: 0`,
        `closed-root (role, name) vs Chrome AX tree`, `tier checks`;
-     - the nine *real model answer* tests: model served, tokens, `inputs unchanged since run: yes`, 80/80.
+     - the nine *real model answer* tests: six replayed at 80/80 and identical to the reference, two
+       rejected for their recorded reasons, and Haiku run-2 failing on the live page where it failed before.
    - Run `npm run serve`, open http://127.0.0.1:5318 in DevTools, reload twice, and show the tag names
-     changing and `#shadow-root (closed)`. In the console, `$0.shadowRoot` on the vault host is `null`.
+     changing, `#shadow-root (closed)` and the iframe's `#document` inside it, with the button's
+     `data-test-id` changing too. In the console, `$0.shadowRoot` on the vault host is `null`, and
+     `window.length` is 0.
    - Run `npm run validate -- prompt/examples/reference-output.handwritten.json`.
 2. **Source walkthrough**, in this order:
-   - `site/app.js` (randomisation, the closed root kept in a closure)
+   - `site/app.js` (randomisation, the closed root kept in a closure) → `site/confirm-frame.js` (the nested iframe)
    - `src/shadow-pierce.js` → `src/pierce-hook.min.js` + `src/pierce-query.min.js` → `src/cdpPierce.ts`
    - `prompt/locator-cot-system-prompt.md` → `prompt/locator-output.schema.json` → `scripts/validate-locators.ts`
-   - `tests/framework/resolveStrategy.ts` → `tests/*.spec.ts`
+   - `tests/framework/pierce.ts` (`inOwnFrame`) → `tests/framework/resolveStrategy.ts` → `tests/*.spec.ts`
 3. **AI prompt history**
    - Show the prompts used to build this.
    - Show a live run of the CoT prompt: `npm run prompt:run -- --model sonnet` (about 35 s). The new
      `prompt/runs/.../answer.txt` and `meta.json` appear, and `npm test` picks the run up as one more
      test.
-   - Show `prompt/history/v1/README.md`: v1 was refused as `reasoning_extraction`, and v2 asks for
-     findings instead.
+   - Show `prompt/history/v1/README.md` (v1 refused as `reasoning_extraction`, v2 asks for findings
+     instead) and `prompt/history/v2/README.md` (why v3 added the iframe scope).
 
 ## Layout
 
 ```
 q3/
   package.json, tsconfig.json, playwright.config.ts
-  site/            index.html, page.css, app.js        the randomised micro-frontend (open shell + closed vault)
+  site/            index.html, page.css, app.js        the randomised micro-frontend (open shell > closed vault)
+                   random.js                           random tags, ids, classes and test ids for both documents
+                   confirm-frame.html/.js, frame.css   the iframe nested in the closed root (Confirm Transaction)
   src/
     shadow-pierce.js                                    attachShadow hook + role/name deep query engine
     pierce-hook.min.js, pierce-query.min.js             the one-line copy-paste hook and query string
@@ -465,15 +561,18 @@ q3/
     locator-output.schema.json                          strict schema of the answer
     examples/                                           captured input, user message, reference, pasted-answer slot
     runs/<model>/run-<n>/                               real model answers (answer.txt) + provenance (meta.json)
+    runs/known-replay-failures.json                     accepted answers that fail on the live page, and why
     history/v1/                                         prompt v1 runs and refusals, and why v2 replaced it
+    history/v2/                                         prompt v2 runs on the component before the iframe
   scripts/
     serve.ts                                            static server (no-store)
-    snapshot-component.ts                               captures a live load with declarative shadow roots
+    snapshot-component.ts                               captures a live load: declarative shadow roots, iframe #document
     validate-locators.ts                                schema + semantic validator, --self-test
     run-prompt.ts                                       runs the prompt on a real model via the Claude Code CLI
   tests/
     shadow-pierce.spec.ts                               engine and compact string over 5 reloads, oracles, README check
     cdp-pierce.spec.ts                                  CDP route over 5 reloads
+    frame-route.spec.ts                                 the nested iframe as a hook-free way into the closed root
     semantic-locators.spec.ts                           prompt integrity, validator self-test, strategy execution
     framework/                                          evidence, pierce helpers, strategy resolver
   reporters/evidence-summary.ts                         end-of-run Q3 EVIDENCE SUMMARY
