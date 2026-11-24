@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test, type ElementHandle } from '@playwright/test';
-import { recordedRuns, SYSTEM_PROMPT_PATH } from '../scripts/run-prompt';
+import { recordedRuns, SYSTEM_PROMPT_PATH, USER_MESSAGE_PATH } from '../scripts/run-prompt';
 import {
   DEFAULT_INPUT, parseModelOutput, REFERENCE_PATH, selfTest, validateFile, validateStrategy, SCHEMA_PATH, type Target,
 } from '../scripts/validate-locators';
@@ -22,8 +22,15 @@ interface RunMeta {
   modelServed: string[];
   durationMs: number;
   tokens: { output: number; thinking: number };
-  sha256: { systemPrompt: string };
+  sha256: { systemPrompt: string; userMessage: string; inputComponent: string };
 }
+
+/** The inputs a recorded answer was generated from, and the files that hold them today. */
+const RUN_INPUTS = [
+  ['system prompt', 'systemPrompt', SYSTEM_PROMPT_PATH],
+  ['user message', 'userMessage', USER_MESSAGE_PATH],
+  ['input component', 'inputComponent', DEFAULT_INPUT],
+] as const;
 
 /** The fenced block of `lang` that follows `heading` in the prompt. */
 function fencedBlock(markdown: string, heading: string, lang: string): string {
@@ -94,7 +101,9 @@ test.describe('Q3 - ARIA-only locator strategies from the CoT prompt', () => {
         const meta = JSON.parse(readFileSync(source.metaPath, 'utf8')) as RunMeta;
         evidence.metric('model served', meta.modelServed.join(', '));
         evidence.metric('answer', `${meta.tokens.output} tokens out (${meta.tokens.thinking} thinking), ${(meta.durationMs / 1000).toFixed(0)} s`);
-        evidence.metric('prompt unchanged since run', meta.sha256.systemPrompt === sha256(readFileSync(SYSTEM_PROMPT_PATH, 'utf8')) ? 'yes' : 'NO (prompt edited after this run)');
+        // Reported, not asserted: an edited input makes the answer stale, and the replay below still shows whether it holds.
+        const edited = RUN_INPUTS.filter(([, key, path]) => meta.sha256[key] !== sha256(readFileSync(path, 'utf8'))).map(([name]) => name);
+        evidence.metric('inputs unchanged since run', edited.length ? `NO (${edited.join(', ')} edited after this run)` : 'yes (prompt, user message, component)');
       }
       const report = validateFile(source.path, readFileSync(DEFAULT_INPUT, 'utf8'));
       expect(report.errors.map((e) => `${e.code} at ${e.at}: ${e.message}`), `${rel(source.path)} passes the validator`).toEqual([]);
