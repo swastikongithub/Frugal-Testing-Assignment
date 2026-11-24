@@ -38,11 +38,12 @@ async function relationHandles(page: Page, tier2: RelationLocator): Promise<Elem
  * Resolves the three tiers of one target on the live page, using only roles, names, ARIA relations and paths:
  *  - document / open-shadow targets: Playwright's own getByRole (tier 1) and chained getByRole (tier 3),
  *    which pierce open roots;
- *  - closed-shadow targets: the shadow-pierce deep query, because getByRole stops at the closed boundary;
+ *  - closed-shadow and iframe targets (the iframe sits inside the closed root): the shadow-pierce deep query,
+ *    because getByRole stops at the closed boundary and never enters another frame;
  *  - tier 2 (any scope): the deep query's ARIA IDREF resolution, scoped like the browser scopes IDREFs.
  */
 export async function resolveTarget(page: Page, target: Target): Promise<ResolvedTarget> {
-  const closed = target.scope === 'closed-shadow';
+  const closed = target.scope === 'closed-shadow' || target.scope === 'iframe';
   const tier1: Resolution = closed
     ? { tier: 1, engine: 'shadow-pierce role+name', handles: await pierceAll(page, { role: target.tier1.role, name: target.tier1.name }) }
     : { tier: 1, engine: 'playwright getByRole', handles: await handlesOf(byRole(page, target.tier1)) };
