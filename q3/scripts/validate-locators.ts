@@ -36,7 +36,7 @@ export interface Target {
   tier3: { path: NodeRef[] };
 }
 export interface Strategy {
-  reasoning: {
+  analysis: {
     parseTree: { scope: Scope; depth: number; landmarks: NodeRef[] }[];
     accessibilityModel: unknown[];
     volatilityScan: { volatileTokensSeen: string[]; stableSignals: string[] };
@@ -149,7 +149,7 @@ export function validateStrategy(document: unknown, inputHtml?: string): Report 
   }
 
   // Volatile tokens: the model's own list, plus everything generated-looking in the input.
-  const declared = strategy.reasoning.volatilityScan.volatileTokensSeen.filter((t) => !/\s/.test(t) && t.length >= 3);
+  const declared = strategy.analysis.volatilityScan.volatileTokensSeen.filter((t) => !/\s/.test(t) && t.length >= 3);
   const fromInput = inputHtml ? volatileTokensOf(inputHtml) : [];
   const volatile = [...new Set([...declared, ...fromInput])];
   for (const { at, value } of strings) {
@@ -158,19 +158,19 @@ export function validateStrategy(document: unknown, inputHtml?: string): Report 
   }
   if (inputHtml) {
     for (const token of declared) {
-      if (!inputHtml.includes(token)) warnings.push({ code: 'UNSEEN_VOLATILE_TOKEN', at: 'reasoning.volatilityScan', message: `"${token}" is not in the input` });
+      if (!inputHtml.includes(token)) warnings.push({ code: 'UNSEEN_VOLATILE_TOKEN', at: 'analysis.volatilityScan', message: `"${token}" is not in the input` });
     }
   }
 
   // Structure of the tiers.
-  const scopes = new Set(strategy.reasoning.parseTree.map((p) => p.scope));
+  const scopes = new Set(strategy.analysis.parseTree.map((p) => p.scope));
   const keys = new Set<string>();
   const haystack = inputHtml ? nameHaystack(inputHtml) : '';
   strategy.targets.forEach((t, i) => {
     const base = `targets[${i}] (${t.key})`;
     if (keys.has(t.key)) fail('DUPLICATE_KEY', base, `key "${t.key}" is used twice`);
     keys.add(t.key);
-    if (!scopes.has(t.scope)) fail('SCOPE_NOT_IN_PARSE_TREE', `${base}.scope`, `scope "${t.scope}" is not in reasoning.parseTree`);
+    if (!scopes.has(t.scope)) fail('SCOPE_NOT_IN_PARSE_TREE', `${base}.scope`, `scope "${t.scope}" is not in analysis.parseTree`);
 
     const path = t.tier3.path;
     const first = path[0] as NodeRef;
@@ -252,9 +252,9 @@ export function selfTest(inputHtml = readFileSync(DEFAULT_INPUT, 'utf8')): SelfT
     ['unknown role', 'SCHEMA', (s) => { button(s).tier1.role = 'clickable'; }],
     ['extra "css" property', 'SCHEMA', (s) => { (button(s).tier1 as unknown as Record<string, string>).css = 'form > button'; }],
     ['self-check reports false', 'SCHEMA', (s) => { s.selfCheck.noXPath = false; }],
-    ['reasoning step missing', 'SCHEMA', (s) => { delete (s.reasoning as Partial<Strategy['reasoning']>).volatilityScan; }],
+    ['analysis step missing', 'SCHEMA', (s) => { delete (s.analysis as Partial<Strategy['analysis']>).volatilityScan; }],
     ['duplicate target key', 'DUPLICATE_KEY', (s) => { s.targets.push(structuredClone(button(s))); }],
-    ['scope missing from the parse tree', 'SCOPE_NOT_IN_PARSE_TREE', (s) => { s.reasoning.parseTree = s.reasoning.parseTree.filter((p) => p.scope !== 'closed-shadow'); }],
+    ['scope missing from the parse tree', 'SCOPE_NOT_IN_PARSE_TREE', (s) => { s.analysis.parseTree = s.analysis.parseTree.filter((p) => p.scope !== 'closed-shadow'); }],
   ];
 
   return cases.map(([name, expect, mutate]) => {
