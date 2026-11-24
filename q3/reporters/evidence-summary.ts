@@ -27,6 +27,11 @@ export default class EvidenceSummaryReporter implements Reporter {
         metrics = { evidence: 'unreadable' };
       }
     }
+    if (result.status === 'skipped') {
+      // Show why (e.g. the pasted-LLM-answer slot still holds its placeholder).
+      const reason = [...result.annotations, ...test.annotations].find((a) => a.type === 'skip')?.description;
+      metrics = { reason: reason ?? 'skipped' };
+    }
     this.rows.set(test.id, { title: test.title, status: result.status, durationMs: result.duration, metrics });
   }
 
@@ -46,8 +51,14 @@ export default class EvidenceSummaryReporter implements Reporter {
       }
       if (line.length > INDENT.length) out.push(line);
     }
-    const passed = [...this.rows.values()].filter((r) => r.status === 'passed').length;
-    out.push('-'.repeat(WIDTH), ` ${passed}/${this.rows.size} passed, overall ${result.status.toUpperCase()}`, '='.repeat(WIDTH), '');
+    const count = (status: TestResult['status']): number => [...this.rows.values()].filter((r) => r.status === status).length;
+    const failed = this.rows.size - count('passed') - count('skipped');
+    out.push(
+      '-'.repeat(WIDTH),
+      ` ${count('passed')} passed, ${count('skipped')} skipped, ${failed} failed (of ${this.rows.size}), overall ${result.status.toUpperCase()}`,
+      '='.repeat(WIDTH),
+      '',
+    );
     console.log(out.join('\n'));
   }
 
