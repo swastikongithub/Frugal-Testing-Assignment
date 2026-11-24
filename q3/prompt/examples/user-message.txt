@@ -32,7 +32,7 @@ Targets (use these keys):
         </div>
         <div class="css-2p9zm" role="tabpanel" id="ewu5bbin2dz" aria-labelledby="j0nvkx7pw51">
           <label class="css-4r0pm" for="kxnmsrr7t8p">Display name</label>
-          <input class="css-w7dcb" id="kxnmsrr7t8p" value="Alex Morgan" autocomplete="off">
+          <input class="css-w7dcb" id="kxnmsrr7t8p" value="Swastik Singh" autocomplete="off">
         </div>
         <div class="css-8mvf9" role="tabpanel" id="fw7z29o71m0" aria-labelledby="q5das5i5xdt" hidden="">
           <button class="css-j6sg8" type="button" aria-pressed="false" aria-describedby="mr3fe4y4yl3">Enable two-factor authentication</button>
