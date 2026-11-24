@@ -21,7 +21,8 @@ import { DEFAULT_INPUT, validateFile } from './validate-locators';
  *
  * Each run is written to prompt/runs/<served model id>/run-<n>/:
  *   answer.txt  the model's final text, byte for byte (the test suite parses and validates this file)
- *   meta.json   provenance: model requested and served, CLI version, command, hashes of every input, timing, tokens
+ *   meta.json   provenance: model requested and served, CLI version, command, hashes of every input, timing, tokens,
+ *               and the validator's verdict on the answer when it was recorded (verdictWhenRecorded)
  */
 const fromRoot = (path: string): string => fileURLToPath(new URL(`../${path}`, import.meta.url));
 export const SYSTEM_PROMPT_PATH = fromRoot('prompt/locator-cot-system-prompt.md');
@@ -62,6 +63,13 @@ export function recordedRuns(root = RUNS_DIR): RecordedRun[] {
     }
   }
   return runs.sort((a, b) => a.model.localeCompare(b.model) || a.run - b.run);
+}
+
+/** What the validator said about an answer: VALID, or INVALID with its distinct error codes (sorted). */
+export interface Verdict { verdict: 'VALID' | 'INVALID'; errorCodes: string[] }
+export function verdictOf(report: { errors: { code: string }[] }): Verdict {
+  const errorCodes = [...new Set(report.errors.map((e) => e.code))].sort();
+  return { verdict: errorCodes.length ? 'INVALID' : 'VALID', errorCodes };
 }
 
 function cliVersion(): string {
@@ -158,6 +166,10 @@ function main(argv: string[]): number {
     const meta = JSON.parse(readFileSync(recorded.metaPath, 'utf8')) as { durationMs: number; tokens: { input: number; output: number } };
     const report = validateFile(recorded.answerPath, readFileSync(DEFAULT_INPUT, 'utf8'));
     if (report.errors.length) invalid++;
+    // The verdict is part of the record: the suite replays valid answers and checks that rejected ones stay
+    // rejected for the same reasons.
+    const verdictWhenRecorded = verdictOf(report);
+    writeFileSync(recorded.metaPath, `${JSON.stringify({ ...meta, verdictWhenRecorded }, null, 2)}\n`, 'utf8');
     console.log(`prompt:run ${recorded.model} run-${recorded.run}: ${(meta.durationMs / 1000).toFixed(1)} s, ${meta.tokens.input} in / ${meta.tokens.output} out`);
     console.log(`  answer   : ${rel(recorded.answerPath)}`);
     for (const w of report.warnings) console.log(`  warning  : ${w.code} at ${w.at}: ${w.message}`);
