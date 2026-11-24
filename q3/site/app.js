@@ -104,7 +104,7 @@ class AccountShell extends HTMLElement {
         </div>`)}
         ${wrap(`<div class="${cls()}" role="tabpanel" id="${ids.panelProfile}" aria-labelledby="${ids.tabProfile}">
           <label class="${cls()}" for="${ids.displayName}">Display name</label>
-          <input class="${cls()}" id="${ids.displayName}" value="Alex Morgan" autocomplete="off">
+          <input class="${cls()}" id="${ids.displayName}" value="Swastik Singh" autocomplete="off">
         </div>`)}
         ${wrap(`<div class="${cls()}" role="tabpanel" id="${ids.panelSecurity}" aria-labelledby="${ids.tabSecurity}" hidden>
           <button class="${cls()}" type="button" aria-pressed="false" aria-describedby="${ids.hint}">Enable two-factor authentication</button>
