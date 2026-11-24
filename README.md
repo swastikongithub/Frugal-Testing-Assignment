@@ -15,6 +15,8 @@ Requirements: Node.js 20+ for `q1/` and `q3/`, and a JDK 21+ for `q2/`. The Mave
 Maven itself. Each suite starts the local server it needs (`q3/` reuses one already running on its
 port unless `CI` is set), and every run ends with an evidence summary printed to the console.
 
+The Section B technical article (Q21, Topic A) is in [`Q21-article.md`](Q21-article.md).
+
 `q1/` and `q2/` test a local mock of the system the brief names; each README explains why under *Why a
 local mock*. `q3/` ships its own randomised demo micro-frontend, described under *The demo
 micro-frontend*.
