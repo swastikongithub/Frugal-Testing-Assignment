@@ -147,7 +147,8 @@ test.describe('Q3 - ARIA-only locator strategies from the CoT prompt', () => {
       const report = validateFile(run.answerPath, readFileSync(DEFAULT_INPUT, 'utf8'));
       for (const e of report.errors) log(`rejected: ${e.code} at ${e.at}: ${e.message}`);
       expect(verdictOf(report), 'same verdict and error codes as when the run was recorded').toEqual(meta.verdictWhenRecorded);
-      evidence.metric('validator', `INVALID (${report.errors.length} errors: ${verdictOf(report).errorCodes.join(', ')}), as recorded`);
+      const n = report.errors.length;
+      evidence.metric('validator', `INVALID (${n} ${n === 1 ? 'error' : 'errors'}: ${verdictOf(report).errorCodes.join(', ')}), as recorded`);
       evidence.metric('replayed on the live page', 'no (rejected answers are not executed)');
       await evidence.flush();
     });
