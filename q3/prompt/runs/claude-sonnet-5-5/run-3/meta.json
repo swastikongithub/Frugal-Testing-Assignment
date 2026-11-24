@@ -1,0 +1,28 @@
+{
+  "modelRequested": "sonnet",
+  "modelServed": [
+    "claude-sonnet-5-5"
+  ],
+  "via": "2.1.331 (Claude Code)",
+  "command": "claude -p --model sonnet --system-prompt-file prompt/locator-cot-system-prompt.md --tools \"\" --strict-mcp-config --no-session-persistence --output-format json < prompt/examples/user-message.txt",
+  "effort": "CLI default",
+  "startedAt": "2026-11-24T09:09:01.233Z",
+  "durationMs": 33230,
+  "stopReason": "end_turn",
+  "tokens": {
+    "input": 12744,
+    "output": 6071,
+    "thinking": 2301
+  },
+  "costUSD": 0.0635,
+  "sha256": {
+    "systemPrompt": "9935202e6b08c58fa7a7373d6871a8a1e701209510a687cf8c05868be2b92ab9",
+    "userMessage": "3d76d011e2147d20c42aad9aa10ff4028881598ea1b114a9c0094b59c7204bb9",
+    "inputComponent": "b8a3a870cb85660694798fce8b4fdc1c8ee248959a3bf47480defb34f8f48579",
+    "answer": "169fc88160c24cd91aa29aa7bc8ad18aa9f0aea349869e81d4bc6b239711a293"
+  },
+  "verdictWhenRecorded": {
+    "verdict": "VALID",
+    "errorCodes": []
+  }
+}
