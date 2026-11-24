@@ -1,0 +1,24 @@
+{
+  "modelRequested": "opus",
+  "modelServed": [
+    "claude-opus-5-5"
+  ],
+  "via": "2.1.331 (Claude Code)",
+  "command": "claude -p --model opus --system-prompt-file prompt/locator-cot-system-prompt.md --tools \"\" --strict-mcp-config --no-session-persistence --output-format json < prompt/examples/user-message.txt",
+  "effort": "CLI default",
+  "startedAt": "2026-11-24T08:27:56.798Z",
+  "durationMs": 79430,
+  "stopReason": "end_turn",
+  "tokens": {
+    "input": 12246,
+    "output": 10330,
+    "thinking": 6063
+  },
+  "costUSD": 0.2122,
+  "sha256": {
+    "systemPrompt": "2926f3cce186efb6e2fcbbf66c94777e431f3e523b969f2e789001cce88d1db7",
+    "userMessage": "2481bc0a1f031092d8cb3831b4d913dc2b4bcde5a3092a960dbd2c1211302444",
+    "inputComponent": "4f3d0d92842c7467dfb20650a1899d6467947d6c78b5e149af7037845a63321a",
+    "answer": "0d948bba98fdfe5d0dc6416f655ac9962418ce60aa00facf59d9ce98b26d9ae6"
+  }
+}
