@@ -1,5 +1,5 @@
 {
-  "reasoning": {
+  "analysis": {
     "parseTree": [
       { "scope": "document", "depth": 0, "landmarks": [{ "role": "banner" }, { "role": "main" }, { "role": "contentinfo" }] },
       {
