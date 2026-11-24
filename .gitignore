@@ -25,3 +25,10 @@ Thumbs.db
 
 # The assignment brief carries the issuer's copyright; keep it out of the repo
 Assignment 4.pdf
+
+# Raw recordings for the submission videos (hundreds of MB; they go to Google Drive, not git)
+clips/
+*.mp4
+*.MP4
+*.mov
+*.MOV
