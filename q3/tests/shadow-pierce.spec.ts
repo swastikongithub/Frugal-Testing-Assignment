@@ -3,31 +3,34 @@ import { expect, test, type ElementHandle, type Page } from '@playwright/test';
 import { CdpPierce } from '../src/cdpPierce';
 import { Evidence } from './framework/evidence';
 import {
-  installPierce, loadDemo, MIN_HOOK, MIN_QUERY, pierceAll, pierceOne, README, RELOADS, sameNode, type RoleQuery,
+  inOwnFrame, installPierce, loadDemo, MIN_HOOK, MIN_QUERY, pierceAll, pierceOne, README, RELOADS, sameNode, type RoleQuery,
 } from './framework/pierce';
 
-/** Facts about one load, read in the page next to the "Confirm transfer" button found by the deep query. */
+/** Facts about one load, read in the page next to the "Confirm Transaction" button found by the deep query. */
 interface LoadFacts {
   shellTag: string;
   vaultTag: string;
   controlsIdref: string;
   buttonClass: string;
+  testId: string;
+  frameSrc: string;
   chain: string[];
   shellRootMode: string | null;
   vaultShadowRoot: 'null' | 'exposed';
   hostRefs: string[];
   globalRefs: string[];
+  windowFrames: number;
   absolutePath: string;
   landmarks: string;
   xpathHits: number;
   queryMs: number;
-  roots: { open: number; closed: number };
+  roots: { open: number; closed: number; frames: number };
 }
 
 const distinct = (values: string[]): number => new Set(values).size;
 
 test.describe('Q3 - vanilla JS deep query through an unlinked closed shadow root', () => {
-  test(`reaches the closed root nested in the open shell and drives its form on ${RELOADS} reloads`, async ({ page }, testInfo) => {
+  test(`reaches the iframe in the closed root nested in the open shell and drives the transfer on ${RELOADS} reloads`, async ({ page }, testInfo) => {
     const evidence = new Evidence(testInfo);
     const log = evidence.logger('deep-query');
     await installPierce(page);
@@ -35,10 +38,12 @@ test.describe('Q3 - vanilla JS deep query through an unlinked closed shadow root
 
     for (let load = 1; load <= RELOADS; load++) {
       await loadDemo(page);
-      const button = await pierceOne(page, { role: 'button', name: 'Confirm transfer' });
+      const button = await pierceOne(page, { role: 'button', name: 'Confirm Transaction' });
       const facts: LoadFacts = await button.evaluate((el) => {
         const P = window.__shadowPierce;
-        const vault = (el.getRootNode() as ShadowRoot).host;
+        // The button's document is the iframe's; the iframe element sits in the vault's closed root.
+        const frame = el.ownerDocument.defaultView?.frameElement as HTMLIFrameElement;
+        const vault = (frame.getRootNode() as ShadowRoot).host;
         const shell = (vault.getRootNode() as ShadowRoot).host;
         // "Unlinked": nothing on the host (own or inherited) and nothing on window holds the closed root.
         const bag = vault as unknown as Record<PropertyKey, unknown>;
@@ -54,49 +59,56 @@ test.describe('Q3 - vanilla JS deep query through an unlinked closed shadow root
           try { return win[key] instanceof ShadowRoot; } catch { return false; }
         });
         const started = performance.now();
-        P.queryAll({ role: 'button', name: 'Confirm transfer' });
+        P.queryAll({ role: 'button', name: 'Confirm Transaction' });
         const queryMs = performance.now() - started;
         return {
           shellTag: shell.localName,
           vaultTag: vault.localName,
           controlsIdref: el.getAttribute('aria-controls') ?? '',
           buttonClass: el.className,
+          testId: el.getAttribute('data-test-id') ?? '',
+          frameSrc: frame.getAttribute('src') ?? '',
           chain: P.scopeOf(el).chain.map((c) => c.mode),
           shellRootMode: shell.shadowRoot?.mode ?? null,
           vaultShadowRoot: vault.shadowRoot === null ? 'null' : 'exposed',
           hostRefs,
           globalRefs,
+          // Iframes inside shadow trees are not "document-tree child navigables": window.frames does not list them.
+          windowFrames: window.length,
           absolutePath: P.absolutePath(el),
           landmarks: P.landmarksOf(el).map((l) => (l.name ? `${l.role} "${l.name}"` : l.role)).join(' > '),
-          xpathHits: document.evaluate("//button[normalize-space()='Confirm transfer']", document, null,
+          xpathHits: document.evaluate("//button[normalize-space()='Confirm Transaction']", document, null,
             XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null).snapshotLength,
           queryMs,
           roots: P.stats(),
         };
       });
 
-      expect(facts.chain, 'button sits in a closed root, inside an open root').toEqual(['closed', 'open']);
+      expect(facts.chain, 'button sits in an iframe, inside a closed root, inside an open root').toEqual(['frame', 'closed', 'open']);
       expect(facts.shellRootMode).toBe('open');
       expect(facts.vaultShadowRoot, 'closed root is not exposed on host.shadowRoot').toBe('null');
       expect(facts.hostRefs, 'no host property references the closed root').toEqual([]);
       expect(facts.globalRefs, 'no global references the closed root').toEqual([]);
-      expect(facts.xpathHits, 'XPath cannot see into shadow roots').toBe(0);
-      expect(facts.roots).toEqual({ open: 1, closed: 1 });
-      const playwrightHits = await page.getByRole('button', { name: 'Confirm transfer', exact: true }).count();
+      expect(facts.windowFrames, 'window.frames does not list an iframe that lives in a shadow tree').toBe(0);
+      expect(facts.xpathHits, 'XPath cannot see into shadow roots or other documents').toBe(0);
+      expect(facts.testId, 'the button carries a generated test id, as in the brief').toMatch(/^dyn-uuid-\d+$/);
+      expect(facts.roots).toEqual({ open: 1, closed: 1, frames: 1 });
+      const playwrightHits = await page.getByRole('button', { name: 'Confirm Transaction', exact: true }).count();
       expect(playwrightHits, 'Playwright getByRole stops at the closed boundary').toBe(0);
 
-      // Drive the form inside the closed root through the handles the deep query returned.
+      // Drive the transfer through the handles the deep query returned. Amount and account are in the
+      // closed root; the button is in the iframe, so its handle is handed to that frame before the click.
       const amount = (load * 125.25).toFixed(2);
       const account = load % 2 ? 'Holiday fund 1093' : 'Savings 4821';
       await (await pierceOne(page, { role: 'textbox', name: 'Amount' })).fill(amount);
       await (await pierceOne(page, { role: 'combobox', name: 'To account' })).selectOption({ label: account });
-      await button.click();
+      await (await inOwnFrame(button)).click();
       const statusEl = await pierceOne(page, { role: 'status' });
       const expected = `Transfer of ${amount} to ${account} scheduled.`;
       await expect.poll(() => statusEl.evaluate((el) => window.__shadowPierce.text(el))).toBe(expected);
 
       loads.push({ ...facts, status: expected, playwrightHits });
-      log(`load ${load}: <${facts.shellTag}> (open) > <${facts.vaultTag}> (closed)  aria-controls=${facts.controlsIdref}  -> "${expected}"`);
+      log(`load ${load}: <${facts.shellTag}> (open) > <${facts.vaultTag}> (closed) > iframe  data-test-id=${facts.testId}  aria-controls=${facts.controlsIdref}  -> "${expected}"`);
       log(`        absolute path: ${facts.absolutePath}`);
     }
 
@@ -105,15 +117,20 @@ test.describe('Q3 - vanilla JS deep query through an unlinked closed shadow root
     expect(distinct(loads.map((l) => l.vaultTag)), 'vault tag regenerated every load').toBe(RELOADS);
     expect(distinct(loads.map((l) => l.controlsIdref)), 'ids (and so IDREFs) regenerated every load').toBe(RELOADS);
     expect(distinct(loads.map((l) => l.buttonClass)), 'classes regenerated every load').toBe(RELOADS);
+    expect(distinct(loads.map((l) => l.frameSrc)), 'iframe src regenerated every load').toBe(RELOADS);
     expect(distinct(loads.map((l) => l.absolutePath)), 'absolute paths differ every load').toBe(RELOADS);
     expect(distinct(loads.map((l) => l.landmarks)), 'the accessibility path is the same on every load').toBe(1);
 
     evidence.metric('reloads', RELOADS);
     evidence.metric('closed root reached', `${loads.length}/${RELOADS}`);
-    evidence.metric('nesting', 'document > open > closed');
+    evidence.metric('nesting', 'document > open > closed > iframe');
     evidence.metric('distinct shell/vault tags', `${distinct(loads.map((l) => l.shellTag))}/${distinct(loads.map((l) => l.vaultTag))}`);
     evidence.metric('distinct IDREFs', distinct(loads.map((l) => l.controlsIdref)));
     evidence.metric('distinct classes', distinct(loads.map((l) => l.buttonClass)));
+    // 4-digit test ids, like the brief's dyn-uuid-9921: reported, not asserted, since two loads may draw the same one.
+    evidence.metric('distinct test ids', distinct(loads.map((l) => l.testId)));
+    evidence.metric('distinct iframe src', distinct(loads.map((l) => l.frameSrc)));
+    evidence.metric('window.frames lists the iframe', loads.some((l) => l.windowFrames > 0) ? 'yes' : 'no (0 frames)');
     evidence.metric('distinct absolute XPaths', distinct(loads.map((l) => l.absolutePath)));
     evidence.metric('distinct shapes (tags masked)', distinct(masked));
     evidence.metric('vault.shadowRoot null', `${loads.filter((l) => l.vaultShadowRoot === 'null').length}/${RELOADS}`);
@@ -164,19 +181,20 @@ test.describe('Q3 - vanilla JS deep query through an unlinked closed shadow root
     compared += await compareWithPlaywright([{ role: 'tabpanel', name: 'Security' }, twoFactor]);
     log(`${compared} document/open-root elements: deep query and getByRole returned the same node`);
 
-    // Inside the closed root Playwright sees nothing, so compare (role, name) with Chrome's own accessibility tree.
+    // Behind the closed boundary (the closed root and the iframe inside it) Playwright sees nothing, so
+    // compare (role, name) with Chrome's own accessibility tree.
     const roles = ['form', 'heading', 'textbox', 'combobox', 'button', 'status'];
     const engine = await page.evaluate((list) => list.flatMap((role) => window.__shadowPierce.queryAll({ role })
-      .filter((el) => window.__shadowPierce.scopeOf(el).mode === 'closed')
+      .filter((el) => window.__shadowPierce.scopeOf(el).chain.some((c) => c.mode === 'closed'))
       .map((el) => `${role} "${window.__shadowPierce.nameOf(el)}"`)), roles);
     const cdp = await CdpPierce.attach(page);
     const chrome: string[] = [];
     for (const role of roles) {
-      for (const m of await cdp.queryAll(role)) if (m.shadowChain.at(-1) === 'closed') chrome.push(`${m.role} "${m.name}"`);
+      for (const m of await cdp.queryAll(role)) if (m.chain.includes('closed')) chrome.push(`${m.role} "${m.name}"`);
     }
     await cdp.detach();
-    log(`closed root, deep query : ${engine.join(', ')}`);
-    log(`closed root, Chrome AX  : ${chrome.join(', ')}`);
+    log(`closed root + iframe, deep query : ${engine.join(', ')}`);
+    log(`closed root + iframe, Chrome AX  : ${chrome.join(', ')}`);
     expect(engine.sort()).toEqual(chrome.sort());
 
     evidence.metric('getByRole comparisons (same node)', `${compared}/${visible.length + 2}`);
@@ -199,17 +217,19 @@ test.describe('Q3 - vanilla JS deep query through an unlinked closed shadow root
       await loadDemo(page);
       expect(await page.evaluate(() => typeof window.__shadowPierce)).toBe('undefined');
       const amountBox = await minQuery(page, 'textbox', 'Amount');
-      const button = await minQuery(page, 'button', 'Confirm transfer');
-      expect(amountBox && button, 'compact query finds the closed-root controls').toBeTruthy();
-      expect(await button!.evaluate((el) => (el.getRootNode() as ShadowRoot).mode)).toBe('closed');
+      const button = await minQuery(page, 'button', 'Confirm Transaction');
+      expect(amountBox && button, 'compact query finds the closed-root field and the iframe button').toBeTruthy();
+      expect(await amountBox!.evaluate((el) => (el.getRootNode() as ShadowRoot).mode)).toBe('closed');
+      expect(await button!.evaluate((el) => (el.ownerDocument.defaultView?.frameElement?.getRootNode() as ShadowRoot).mode),
+        'the button is in an iframe whose element sits in the closed root').toBe('closed');
       const amount = (load * 10.5).toFixed(2);
       await amountBox!.fill(amount);
-      await button!.click();
+      await (await inOwnFrame(button!)).click();
       const status = await minQuery(page, 'status');
       await expect.poll(() => status!.evaluate((el) => el.textContent)).toBe(`Transfer of ${amount} to Savings 4821 scheduled.`);
       driven++;
     }
-    log(`compact hook + query alone drove the closed-root form on ${driven}/${RELOADS} loads`);
+    log(`compact hook + query alone drove the closed root and its iframe on ${driven}/${RELOADS} loads`);
 
     // B: compact hook + full engine on one page (they share the root map); results must be the same nodes.
     const both = await context.newPage();
@@ -217,7 +237,7 @@ test.describe('Q3 - vanilla JS deep query through an unlinked closed shadow root
     await installPierce(both);
     await loadDemo(both);
     const targets: RoleQuery[] = [
-      { role: 'button', name: 'Confirm transfer' }, { role: 'textbox', name: 'Amount' }, { role: 'combobox', name: 'To account' },
+      { role: 'button', name: 'Confirm Transaction' }, { role: 'textbox', name: 'Amount' }, { role: 'combobox', name: 'To account' },
       { role: 'form', name: 'New transfer' }, { role: 'heading', name: 'New transfer' }, { role: 'status' },
       { role: 'tab', name: 'Security' }, { role: 'textbox', name: 'Display name' }, { role: 'link', name: 'Statements' },
       { role: 'region', name: 'Transfer funds' }, { role: 'navigation', name: 'Account sections' },
