@@ -307,7 +307,7 @@ What the answers show:
 
 - **They converge.** 8 of the 9 answers use exactly the same locators as the hand-written reference,
   for all 6 targets: the same scope, the same tier 1 role and name, the same tier 2, and the same tier 3
-  path. Tier 2 is `aria-controls` for the tab/panel pairs and for button → status, and `unavailable` for
+  path. Each model-answer test prints this as `locators vs hand-written reference`. Tier 2 is `aria-controls` for the tab/panel pairs and for button → status, and `unavailable` for
   the amount and account fields, which only have a `<label for>`. The ninth (Haiku run-1) differs in one
   way: its tier 3 paths start at the named `region` landmark instead of `main`. That is still
   landmark-first, and it resolves too. The models never saw the reference: the prompt's only example
