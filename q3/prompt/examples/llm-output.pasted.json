@@ -1,0 +1,3 @@
+{
+  "_placeholder": "Replace this whole file with the raw JSON answer a model gave for prompt/locator-cot-system-prompt.md (system) + prompt/examples/user-message.txt (user). While this key is present, tests/semantic-locators.spec.ts skips the pasted-output test and says so."
+}
