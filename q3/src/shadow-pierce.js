@@ -20,25 +20,26 @@
  */
 (() => {
   const ROOTS_KEY = Symbol.for('shadow-pierce.roots');
-  if (window[ROOTS_KEY]) return;
+  if (window.__shadowPierce) return;
 
   // ---------------------------------------------------------------- 1. attachShadow hook
+  // The compact hook (pierce-hook.min.js) uses the same global map, so either can load first.
   /** @type {WeakMap<Element, ShadowRoot>} */
-  const roots = new WeakMap();
-  const nativeAttachShadow = Element.prototype.attachShadow;
-  let hookedCount = 0;
-  Object.defineProperty(window, ROOTS_KEY, { value: roots });
-  Object.defineProperty(Element.prototype, 'attachShadow', {
-    configurable: true,
-    enumerable: false,
-    writable: true,
-    value: function attachShadow(init) {
-      const root = nativeAttachShadow.call(this, init);
-      roots.set(this, root);
-      hookedCount++;
-      return root;
-    },
-  });
+  const roots = window[ROOTS_KEY] ?? new WeakMap();
+  if (!window[ROOTS_KEY]) {
+    const nativeAttachShadow = Element.prototype.attachShadow;
+    Object.defineProperty(window, ROOTS_KEY, { value: roots });
+    Object.defineProperty(Element.prototype, 'attachShadow', {
+      configurable: true,
+      enumerable: false,
+      writable: true,
+      value: function attachShadow(init) {
+        const root = nativeAttachShadow.call(this, init);
+        roots.set(this, root);
+        return root;
+      },
+    });
+  }
 
   /** The shadow root of a host: the open one the platform exposes, else the one we captured. */
   const shadowOf = (el) => el.shadowRoot ?? roots.get(el) ?? null;
@@ -288,7 +289,15 @@
     roleOf, nameOf, isHidden, scopeOf, landmarksOf, absolutePath,
     idrefs: (el, attribute) => idrefs(el, attribute),
     text: (el) => normalise(textOf(el, true)),
-    stats: () => ({ hookedRoots: hookedCount }),
+    /** Shadow roots reachable from the document through this engine, by mode. */
+    stats: () => {
+      const count = { open: 0, closed: 0 };
+      for (const el of walk(document)) {
+        const root = shadowOf(el);
+        if (root) count[root.mode]++;
+      }
+      return count;
+    },
   };
   Object.defineProperty(window, '__shadowPierce', { value: Object.freeze(api) });
 })();
