@@ -1,0 +1,27 @@
+{
+  "name": "q3-shadow-pierce-semantic-locators",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Q3 - Closed shadow DOM piercing (vanilla JS + CDP) and a CoT system prompt for ARIA-only locators.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "serve": "tsx scripts/serve.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "validate": "tsx scripts/validate-locators.ts",
+    "validate:self-test": "tsx scripts/validate-locators.ts --self-test",
+    "snapshot": "tsx scripts/snapshot-component.ts",
+    "test": "npm run validate:self-test && npm run typecheck && playwright test",
+    "test:headed": "playwright test --headed",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.1",
+    "@types/node": "^26.6.6",
+    "ajv": "^8.20.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}
