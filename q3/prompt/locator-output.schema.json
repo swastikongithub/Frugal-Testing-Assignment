@@ -14,7 +14,7 @@
       "required": ["parseTree", "accessibilityModel", "volatilityScan", "relationshipMap"],
       "properties": {
         "parseTree": {
-          "description": "Step 1: every tree scope (document, then each shadow root), outermost first, with the landmarks it contains.",
+          "description": "Step 1: every tree scope (the document, then each shadow root and each iframe document), outermost first, with the landmarks it contains.",
           "type": "array",
           "minItems": 1,
           "items": {
@@ -107,7 +107,10 @@
     }
   },
   "$defs": {
-    "scope": { "enum": ["document", "open-shadow", "closed-shadow"] },
+    "scope": {
+      "description": "The tree scope an element lives in: the top document, an open or closed shadow root, or the document of a same-origin iframe.",
+      "enum": ["document", "open-shadow", "closed-shadow", "iframe"]
+    },
     "role": {
       "description": "Concrete WAI-ARIA 1.2 roles. Abstract roles and generic / none / presentation are not locator roles.",
       "enum": [
