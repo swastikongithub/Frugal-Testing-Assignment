@@ -11,9 +11,14 @@
  *     The WeakMap holds nothing on the host itself and does not keep detached hosts alive.
  *
  *  2. Exposes window.__shadowPierce, a query API that walks the flat tree (document, then
- *     every open and hooked closed root, at any depth) and matches elements by ARIA role and
- *     accessible name. It never looks at tag names, ids, classes or positions, so it keeps
- *     working when those are regenerated on every load.
+ *     every open and hooked closed root, and every same-origin iframe document, at any depth)
+ *     and matches elements by ARIA role and accessible name. It never looks at tag names, ids,
+ *     classes or positions, so it keeps working when those are regenerated on every load.
+ *
+ * Frames: the init script runs in every frame, so each iframe has its own hook and root map.
+ * The engine in the top window enters iframe.contentDocument (same-origin only) and reads
+ * shadow roots there from that frame's own map. Nodes of another document belong to another
+ * realm, so nothing below uses `instanceof ShadowRoot`.
  *
  * Role and name computation is a documented subset of HTML-AAM / accname-1.2, enough for
  * forms, landmarks, tabs and links. Known limits are listed in q3/README.md.
@@ -41,29 +46,45 @@
     });
   }
 
-  /** The shadow root of a host: the open one the platform exposes, else the one we captured. */
-  const shadowOf = (el) => el.shadowRoot ?? roots.get(el) ?? null;
+  /** true for a ShadowRoot of any realm (an iframe's nodes fail `instanceof ShadowRoot` in this window). */
+  const isShadowRoot = (node) => node?.nodeType === Node.DOCUMENT_FRAGMENT_NODE && Boolean(node.host);
 
-  /** Parent in the flat tree: parent element, or the host when we are at the top of a shadow root. */
-  const flatParent = (el) => {
+  /** The root map of the frame `el` lives in: each frame's own hook filled its own map. */
+  const rootsOf = (el) => el.ownerDocument?.defaultView?.[ROOTS_KEY] ?? roots;
+
+  /** The shadow root of a host: the open one the platform exposes, else the one a hook captured. */
+  const shadowOf = (el) => el.shadowRoot ?? rootsOf(el).get(el) ?? null;
+
+  /** The document of a same-origin iframe (null for other elements and for cross-origin frames). */
+  const frameDocumentOf = (el) => (el.tagName === 'IFRAME' || el.tagName === 'FRAME' ? el.contentDocument : null);
+
+  /** The iframe element that holds `doc`, or null for the top document. */
+  const frameElementOf = (doc) => doc.defaultView?.frameElement ?? null;
+
+  /** Parent inside one document: parent element, or the host when we are at the top of a shadow root. */
+  const parentInDocument = (el) => {
     if (el.parentElement) return el.parentElement;
     const root = el.getRootNode();
-    return root instanceof ShadowRoot ? root.host : null;
+    return isShadowRoot(root) ? root.host : null;
   };
 
-  /** Every element under `start` (document, shadow root or element), entering shadow roots. */
+  /** Parent in the flat tree, across frames too: at the top of an iframe's document, the iframe element. */
+  const flatParent = (el) =>
+    parentInDocument(el) ?? (el.parentNode?.nodeType === Node.DOCUMENT_NODE ? frameElementOf(el.parentNode) : null);
+
+  /** Every element under `start` (document, shadow root or element), entering shadow roots and iframe documents. */
   function* walk(start) {
     const scopes = [start];
     while (scopes.length) {
       const scope = scopes.shift();
-      if (scope instanceof Element) {
-        const own = shadowOf(scope);
+      if (scope.nodeType === Node.ELEMENT_NODE) {
+        const own = shadowOf(scope) ?? frameDocumentOf(scope);
         if (own) scopes.push(own);
       }
-      const walker = document.createTreeWalker(scope, NodeFilter.SHOW_ELEMENT);
+      const walker = (scope.ownerDocument ?? scope).createTreeWalker(scope, NodeFilter.SHOW_ELEMENT);
       for (let node = walker.nextNode(); node; node = walker.nextNode()) {
         yield node;
-        const inner = shadowOf(node);
+        const inner = shadowOf(node) ?? frameDocumentOf(node);
         if (inner) scopes.push(inner);
       }
     }
@@ -75,9 +96,9 @@
 
   const hasOwnName = (el) => Boolean(el.getAttribute('aria-label')?.trim() || el.getAttribute('aria-labelledby')?.trim());
 
-  /** true when no sectioning element sits between `el` and the top of the page (flat tree). */
+  /** true when no sectioning element sits between `el` and the top of its own document (flat tree). */
   const isTopLevel = (el) => {
-    for (let p = flatParent(el); p; p = flatParent(p)) if (SECTIONING.has(p.tagName)) return false;
+    for (let p = parentInDocument(el); p; p = parentInDocument(p)) if (SECTIONING.has(p.tagName)) return false;
     return true;
   };
 
@@ -134,6 +155,10 @@
     for (let node = el; node; node = flatParent(node)) {
       if (node.getAttribute('aria-hidden') === 'true') return true;
     }
+    // A hidden iframe hides its whole document, which checkVisibility() inside that document cannot see.
+    for (let frame = frameElementOf(el.ownerDocument); frame; frame = frameElementOf(frame.ownerDocument)) {
+      if (!frame.checkVisibility({ visibilityProperty: true })) return true;
+    }
     // An <option> of a collapsed <select> has no layout box but is still exposed.
     const box = el.tagName === 'OPTION' ? el.closest('select') ?? el : el;
     return !box.checkVisibility({ visibilityProperty: true });
@@ -146,7 +171,7 @@
   ]);
   const normalise = (text) => text.replace(/\s+/g, ' ').trim();
 
-  /** IDREF list resolved in the element's own tree scope (document or the shadow root it lives in). */
+  /** IDREF list resolved in the element's own tree scope (its document, iframe document or shadow root). */
   const idrefs = (el, attribute) => {
     const root = el.getRootNode();
     return (el.getAttribute(attribute) ?? '').split(/\s+/).filter(Boolean)
@@ -167,7 +192,7 @@
       ? node.assignedNodes({ flatten: true }).length ? node.assignedNodes({ flatten: true }) : [...node.childNodes]
       : [...(shadowOf(node) ?? node).childNodes];
     const inner = children.map((child) => textOf(child, includeHidden)).join('');
-    const inline = getComputedStyle(node).display.startsWith('inline');
+    const inline = node.ownerDocument.defaultView.getComputedStyle(node).display.startsWith('inline');
     return inline ? inner : ` ${inner} `;
   }
 
@@ -248,11 +273,23 @@
       .filter((el) => idrefs(el, relation).some((ref) => anchors.includes(ref)));
   }
 
-  /** Where an element lives: 'document', or the mode of each shadow root from the inside out. */
+  /**
+   * Where an element lives: 'document', or each boundary around it from the inside out:
+   * a shadow root ('open' / 'closed', with its host's tag) or an iframe document ('frame').
+   */
   function scopeOf(el) {
     const chain = [];
-    for (let root = el.getRootNode(); root instanceof ShadowRoot; root = root.host.getRootNode()) {
-      chain.push({ mode: root.mode, hostTag: root.host.localName });
+    for (let node = el; ; ) {
+      const root = node.getRootNode();
+      if (isShadowRoot(root)) {
+        chain.push({ mode: root.mode, hostTag: root.host.localName });
+        node = root.host;
+        continue;
+      }
+      const frame = frameElementOf(root);
+      if (!frame) break;
+      chain.push({ mode: 'frame', hostTag: frame.localName });
+      node = frame;
     }
     return { mode: chain[0]?.mode ?? 'document', chain };
   }
@@ -267,7 +304,10 @@
     return path;
   }
 
-  /** Absolute structural path, e.g. /html/body/main/mf-x/#shadow-root(open)/section[2]/... (evidence only). */
+  /**
+   * Absolute structural path (evidence only), across shadow roots and iframes, e.g.
+   * /html/body/main/mf-x/#shadow-root(open)/section[2]/mf-y/#shadow-root(closed)/form/iframe/#document/html/body/button
+   */
   function absolutePath(el) {
     const parts = [];
     for (let node = el; node; ) {
@@ -277,9 +317,15 @@
       parts.unshift(same.length > 1 ? `${node.localName}[${same.indexOf(node) + 1}]` : node.localName);
       if (parent) { node = parent; continue; }
       const root = node.getRootNode();
-      if (!(root instanceof ShadowRoot)) break;
-      parts.unshift(`#shadow-root(${root.mode})`);
-      node = root.host;
+      if (isShadowRoot(root)) {
+        parts.unshift(`#shadow-root(${root.mode})`);
+        node = root.host;
+        continue;
+      }
+      const frame = frameElementOf(root);
+      if (!frame) break;
+      parts.unshift('#document');
+      node = frame;
     }
     return `/${parts.join('/')}`;
   }
@@ -289,12 +335,13 @@
     roleOf, nameOf, isHidden, scopeOf, landmarksOf, absolutePath,
     idrefs: (el, attribute) => idrefs(el, attribute),
     text: (el) => normalise(textOf(el, true)),
-    /** Shadow roots reachable from the document through this engine, by mode. */
+    /** Shadow roots (by mode) and iframe documents reachable from the document through this engine. */
     stats: () => {
-      const count = { open: 0, closed: 0 };
+      const count = { open: 0, closed: 0, frames: 0 };
       for (const el of walk(document)) {
         const root = shadowOf(el);
         if (root) count[root.mode]++;
+        if (frameDocumentOf(el)) count.frames++;
       }
       return count;
     },
