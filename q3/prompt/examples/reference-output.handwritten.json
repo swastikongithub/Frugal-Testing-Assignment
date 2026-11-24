@@ -1,0 +1,138 @@
+{
+  "reasoning": {
+    "parseTree": [
+      { "scope": "document", "depth": 0, "landmarks": [{ "role": "banner" }, { "role": "main" }, { "role": "contentinfo" }] },
+      {
+        "scope": "open-shadow",
+        "depth": 1,
+        "landmarks": [
+          { "role": "navigation", "name": "Account sections" },
+          { "role": "region", "name": "Account settings" },
+          { "role": "region", "name": "Transfer funds" }
+        ]
+      },
+      { "scope": "closed-shadow", "depth": 2, "landmarks": [{ "role": "form", "name": "New transfer" }] }
+    ],
+    "accessibilityModel": [
+      { "role": "banner", "name": "", "roleSource": "implicit-html", "nameSource": "none", "scope": "document" },
+      { "role": "main", "name": "", "roleSource": "implicit-html", "nameSource": "none", "scope": "document" },
+      { "role": "heading", "name": "Your accounts", "roleSource": "implicit-html", "nameSource": "content", "scope": "document" },
+      { "role": "contentinfo", "name": "", "roleSource": "implicit-html", "nameSource": "none", "scope": "document" },
+      { "role": "navigation", "name": "Account sections", "roleSource": "implicit-html", "nameSource": "aria-label", "scope": "open-shadow" },
+      { "role": "link", "name": "Overview", "roleSource": "implicit-html", "nameSource": "content", "scope": "open-shadow", "states": ["aria-current=page"] },
+      { "role": "link", "name": "Statements", "roleSource": "implicit-html", "nameSource": "content", "scope": "open-shadow" },
+      { "role": "link", "name": "Settings", "roleSource": "implicit-html", "nameSource": "content", "scope": "open-shadow" },
+      { "role": "region", "name": "Account settings", "roleSource": "implicit-html", "nameSource": "aria-labelledby", "scope": "open-shadow" },
+      { "role": "heading", "name": "Account settings", "roleSource": "implicit-html", "nameSource": "content", "scope": "open-shadow" },
+      { "role": "tablist", "name": "Settings sections", "roleSource": "explicit-role", "nameSource": "aria-label", "scope": "open-shadow" },
+      { "role": "tab", "name": "Profile", "roleSource": "explicit-role", "nameSource": "content", "scope": "open-shadow", "states": ["aria-selected=true"] },
+      { "role": "tab", "name": "Security", "roleSource": "explicit-role", "nameSource": "content", "scope": "open-shadow", "states": ["aria-selected=false"] },
+      { "role": "tabpanel", "name": "Profile", "roleSource": "explicit-role", "nameSource": "aria-labelledby", "scope": "open-shadow" },
+      { "role": "textbox", "name": "Display name", "roleSource": "implicit-html", "nameSource": "label-element", "scope": "open-shadow" },
+      { "role": "tabpanel", "name": "Security", "roleSource": "explicit-role", "nameSource": "aria-labelledby", "scope": "open-shadow", "states": ["aria-hidden=true (hidden attribute: out of the tree until its tab is selected)"] },
+      { "role": "button", "name": "Enable two-factor authentication", "roleSource": "implicit-html", "nameSource": "content", "scope": "open-shadow", "states": ["aria-pressed=false"] },
+      { "role": "region", "name": "Transfer funds", "roleSource": "implicit-html", "nameSource": "aria-labelledby", "scope": "open-shadow" },
+      { "role": "heading", "name": "Transfer funds", "roleSource": "implicit-html", "nameSource": "content", "scope": "open-shadow" },
+      { "role": "form", "name": "New transfer", "roleSource": "implicit-html", "nameSource": "aria-labelledby", "scope": "closed-shadow" },
+      { "role": "heading", "name": "New transfer", "roleSource": "implicit-html", "nameSource": "content", "scope": "closed-shadow" },
+      { "role": "textbox", "name": "Amount", "roleSource": "implicit-html", "nameSource": "label-element", "scope": "closed-shadow" },
+      { "role": "combobox", "name": "To account", "roleSource": "implicit-html", "nameSource": "label-element", "scope": "closed-shadow" },
+      { "role": "option", "name": "Savings 4821", "roleSource": "implicit-html", "nameSource": "content", "scope": "closed-shadow" },
+      { "role": "option", "name": "Holiday fund 1093", "roleSource": "implicit-html", "nameSource": "content", "scope": "closed-shadow" },
+      { "role": "button", "name": "Confirm transfer", "roleSource": "implicit-html", "nameSource": "content", "scope": "closed-shadow" },
+      { "role": "status", "name": "", "roleSource": "explicit-role", "nameSource": "none", "scope": "closed-shadow", "states": ["aria-live=polite"] }
+    ],
+    "volatilityScan": {
+      "volatileTokensSeen": [
+        "mf-ru5x3-0awpj",
+        "mf-qwrl7-psaog",
+        "css-cb05q",
+        "css-udwwm",
+        "ruus0w7tof7",
+        "gzij79wxiwt",
+        "custom element tags mf-<5 chars>-<5 chars>",
+        "a css-<5 chars> class on every element",
+        "11-character random ids and the IDREFs that point at them",
+        "anonymous wrapper divs that change the nesting depth"
+      ],
+      "stableSignals": [
+        "implicit and explicit ARIA roles",
+        "accessible names from labels, aria-label, aria-labelledby and content",
+        "the relationship types aria-controls, aria-labelledby and aria-describedby (not their IDREF values)",
+        "landmark ancestry: main > named region > named form"
+      ]
+    },
+    "relationshipMap": [
+      { "from": { "role": "region", "name": "Account settings" }, "relation": "aria-labelledby", "to": { "role": "heading", "name": "Account settings" } },
+      { "from": { "role": "tab", "name": "Profile" }, "relation": "aria-controls", "to": { "role": "tabpanel", "name": "Profile" } },
+      { "from": { "role": "tab", "name": "Security" }, "relation": "aria-controls", "to": { "role": "tabpanel", "name": "Security" } },
+      { "from": { "role": "tabpanel", "name": "Profile" }, "relation": "aria-labelledby", "to": { "role": "tab", "name": "Profile" } },
+      { "from": { "role": "tabpanel", "name": "Security" }, "relation": "aria-labelledby", "to": { "role": "tab", "name": "Security" } },
+      { "from": { "role": "button", "name": "Enable two-factor authentication" }, "relation": "aria-describedby", "to": { "role": "paragraph", "text": "You will need an authenticator app." } },
+      { "from": { "role": "region", "name": "Transfer funds" }, "relation": "aria-labelledby", "to": { "role": "heading", "name": "Transfer funds" } },
+      { "from": { "role": "form", "name": "New transfer" }, "relation": "aria-labelledby", "to": { "role": "heading", "name": "New transfer" } },
+      { "from": { "role": "button", "name": "Confirm transfer" }, "relation": "aria-controls", "to": { "role": "status" } },
+      { "from": { "role": "button", "name": "Confirm transfer" }, "relation": "aria-describedby", "to": { "role": "paragraph", "text": "Transfers over 1,000.00 need two-factor authentication." } }
+    ]
+  },
+  "targets": [
+    {
+      "key": "securityTab",
+      "intent": "the Security tab of the account settings",
+      "scope": "open-shadow",
+      "tier1": { "role": "tab", "name": "Security", "uniqueOnPage": true },
+      "tier2": { "relation": "aria-controls", "direction": "target-to-anchor", "anchor": { "role": "tabpanel", "name": "Security" }, "targetRole": "tab" },
+      "tier3": { "path": [{ "role": "main" }, { "role": "region", "name": "Account settings" }, { "role": "tablist", "name": "Settings sections" }, { "role": "tab", "name": "Security" }] }
+    },
+    {
+      "key": "profilePanel",
+      "intent": "the panel shown for the Profile tab",
+      "scope": "open-shadow",
+      "tier1": { "role": "tabpanel", "name": "Profile", "uniqueOnPage": true },
+      "tier2": { "relation": "aria-controls", "direction": "anchor-to-target", "anchor": { "role": "tab", "name": "Profile" }, "targetRole": "tabpanel" },
+      "tier3": { "path": [{ "role": "main" }, { "role": "region", "name": "Account settings" }, { "role": "tabpanel", "name": "Profile" }] }
+    },
+    {
+      "key": "amountField",
+      "intent": "the transfer amount input",
+      "scope": "closed-shadow",
+      "tier1": { "role": "textbox", "name": "Amount", "uniqueOnPage": true },
+      "tier2": { "unavailable": "No ARIA relationship attribute points at or from this input; its name comes from a <label for>, which is HTML labelling, not an ARIA relation." },
+      "tier3": { "path": [{ "role": "main" }, { "role": "region", "name": "Transfer funds" }, { "role": "form", "name": "New transfer" }, { "role": "textbox", "name": "Amount" }] }
+    },
+    {
+      "key": "destinationAccount",
+      "intent": "the destination account picker",
+      "scope": "closed-shadow",
+      "tier1": { "role": "combobox", "name": "To account", "uniqueOnPage": true },
+      "tier2": { "unavailable": "No ARIA relationship attribute points at or from this select; it is named by a <label for> only." },
+      "tier3": { "path": [{ "role": "main" }, { "role": "region", "name": "Transfer funds" }, { "role": "form", "name": "New transfer" }, { "role": "combobox", "name": "To account" }] }
+    },
+    {
+      "key": "confirmTransfer",
+      "intent": "the button that submits the transfer",
+      "scope": "closed-shadow",
+      "tier1": { "role": "button", "name": "Confirm transfer", "uniqueOnPage": true },
+      "tier2": { "relation": "aria-controls", "direction": "target-to-anchor", "anchor": { "role": "status" }, "targetRole": "button" },
+      "tier3": { "path": [{ "role": "main" }, { "role": "region", "name": "Transfer funds" }, { "role": "form", "name": "New transfer" }, { "role": "button", "name": "Confirm transfer" }] }
+    },
+    {
+      "key": "transferStatus",
+      "intent": "the live message that reports the transfer result",
+      "scope": "closed-shadow",
+      "tier1": { "role": "status", "uniqueOnPage": true },
+      "tier2": { "relation": "aria-controls", "direction": "anchor-to-target", "anchor": { "role": "button", "name": "Confirm transfer" }, "targetRole": "status" },
+      "tier3": { "path": [{ "role": "main" }, { "role": "region", "name": "Transfer funds" }, { "role": "form", "name": "New transfer" }, { "role": "status" }] }
+    }
+  ],
+  "selfCheck": {
+    "noCssSelectors": true,
+    "noXPath": true,
+    "noClassOrIdValues": true,
+    "noDataOrStyleAttributes": true,
+    "noVolatileTokensInLocators": true,
+    "everyTier3StartsAtLandmark": true,
+    "everyTier3EndsAtTier1": true,
+    "everyTier2RelationExistsInInput": true
+  }
+}
