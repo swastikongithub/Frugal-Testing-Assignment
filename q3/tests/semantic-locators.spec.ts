@@ -1,7 +1,9 @@
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test, type ElementHandle } from '@playwright/test';
+import { recordedRuns, SYSTEM_PROMPT_PATH } from '../scripts/run-prompt';
 import {
   DEFAULT_INPUT, parseModelOutput, REFERENCE_PATH, selfTest, validateFile, validateStrategy, SCHEMA_PATH, type Target,
 } from '../scripts/validate-locators';
@@ -13,6 +15,15 @@ const fromRoot = (path: string): string => fileURLToPath(new URL(`../${path}`, i
 const PROMPT_PATH = fromRoot('prompt/locator-cot-system-prompt.md');
 const PASTED_PATH = fromRoot('prompt/examples/llm-output.pasted.json');
 const rel = (path: string): string => relative(fromRoot(''), path).replace(/\\/g, '/');
+const sha256 = (text: string): string => createHash('sha256').update(text, 'utf8').digest('hex');
+
+/** The parts of a run's meta.json (written by scripts/run-prompt.ts) that the evidence reports. */
+interface RunMeta {
+  modelServed: string[];
+  durationMs: number;
+  tokens: { output: number; thinking: number };
+  sha256: { systemPrompt: string };
+}
 
 /** The fenced block of `lang` that follows `heading` in the prompt. */
 function fencedBlock(markdown: string, heading: string, lang: string): string {
@@ -45,7 +56,7 @@ test.describe('Q3 - ARIA-only locator strategies from the CoT prompt', () => {
 
     evidence.metric('schema embedded verbatim', 'yes');
     evidence.metric('few-shot answer', `VALID (${report.errors.length} errors, ${report.warnings.length} warnings)`);
-    evidence.metric('reasoning steps', steps.length);
+    evidence.metric('method steps', steps.length);
     evidence.metric('hard rules', 8);
     evidence.metric('prompt words', prompt.split(/\s+/).length);
     await evidence.flush();
@@ -63,9 +74,12 @@ test.describe('Q3 - ARIA-only locator strategies from the CoT prompt', () => {
     await evidence.flush();
   });
 
+  // The hand-written reference, every real model answer recorded by `npm run prompt:run`, and the slot for
+  // an answer pasted from any other model. All of them must clear the same bar.
   const strategies = [
-    { label: 'hand-written reference strategy', path: REFERENCE_PATH },
-    { label: 'pasted LLM answer', path: PASTED_PATH },
+    { label: 'hand-written reference strategy', path: REFERENCE_PATH, tag: 'hand-written', metaPath: undefined },
+    ...recordedRuns().map((r) => ({ label: `${r.model} run-${r.run} (real model answer)`, path: r.answerPath, tag: `${r.model} #${r.run}`, metaPath: r.metaPath })),
+    { label: 'pasted LLM answer', path: PASTED_PATH, tag: 'pasted', metaPath: undefined },
   ];
 
   for (const source of strategies) {
@@ -75,11 +89,17 @@ test.describe('Q3 - ARIA-only locator strategies from the CoT prompt', () => {
       test.skip(placeholder, `${rel(source.path)} is still the placeholder: paste a real model answer into it to run this test`);
 
       const evidence = new Evidence(testInfo);
-      const log = evidence.logger(source.label.split(' ')[0] ?? 'strategy');
+      const log = evidence.logger(source.tag);
+      if (source.metaPath) {
+        const meta = JSON.parse(readFileSync(source.metaPath, 'utf8')) as RunMeta;
+        evidence.metric('model served', meta.modelServed.join(', '));
+        evidence.metric('answer', `${meta.tokens.output} tokens out (${meta.tokens.thinking} thinking), ${(meta.durationMs / 1000).toFixed(0)} s`);
+        evidence.metric('prompt unchanged since run', meta.sha256.systemPrompt === sha256(readFileSync(SYSTEM_PROMPT_PATH, 'utf8')) ? 'yes' : 'NO (prompt edited after this run)');
+      }
       const report = validateFile(source.path, readFileSync(DEFAULT_INPUT, 'utf8'));
       expect(report.errors.map((e) => `${e.code} at ${e.at}: ${e.message}`), `${rel(source.path)} passes the validator`).toEqual([]);
       const targets = (report.strategy?.targets ?? []) as Target[];
-      log(`${rel(source.path)}: VALID, ${targets.length} targets, ${report.warnings.length} warning(s)`);
+      log(`${rel(source.path)}: VALID, ${targets.length} targets, ${report.warnings.length} warning(s)${report.warnings.length ? ` (${report.warnings.map((w) => w.code).join(', ')})` : ''}`);
 
       await installPierce(page);
       let checks = 0;
