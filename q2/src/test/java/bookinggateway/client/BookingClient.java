@@ -27,13 +27,21 @@ public final class BookingClient {
     }
 
     public Response put(String bookingId, String body, SignedRequest auth) {
+        return send(preparePut(body, auth), bookingId);
+    }
+
+    /** A signed PUT built ahead of time, so sending it later does no request-building work. */
+    public RequestSpecification preparePut(String body, SignedRequest auth) {
         return given().spec(spec)
                 .header(SIGNATURE_HEADER, auth.signature())
                 .header(TIMESTAMP_HEADER, Long.toString(auth.timestamp()))
                 .header(CHAIN_HEADER, auth.chainHead())
-                .body(body)
-                .when()
-                .put("/booking/{id}", bookingId);
+                .body(body);
+    }
+
+    /** Send a PUT prepared with {@link #preparePut}. */
+    public Response send(RequestSpecification preparedPut, String bookingId) {
+        return preparedPut.when().put("/booking/{id}", bookingId);
     }
 
     /** A PUT with no auth headers at all. */
