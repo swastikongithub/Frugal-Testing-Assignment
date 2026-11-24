@@ -6,13 +6,14 @@ an **unlinked closed shadow root nested inside an open shadow host**. Two delive
 | | What it is |
 |---|---|
 | **Shadow DOM piercing** | A raw vanilla JS deep query that walks the document, every open root and the closed root, and matches elements by **ARIA role + accessible name**. It comes as a readable engine ([`src/shadow-pierce.js`](src/shadow-pierce.js)) and as a **one-line copy-paste query string** ([`src/pierce-query.min.js`](src/pierce-query.min.js)) with its one-line hook. A hook-free **CDP alternative** ([`src/cdpPierce.ts`](src/cdpPierce.ts)) uses `DOM.getDocument({pierce: true})` and `Accessibility.queryAXTree`. All three drive the form inside the closed root on 5 reloads. |
-| **CoT prompt architecture** | A Chain-of-Thought system prompt ([`prompt/locator-cot-system-prompt.md`](prompt/locator-cot-system-prompt.md)) that makes an LLM parse a raw HTML component tree and return a **three-tier, ARIA-only locator strategy**: role mapping → ARIA relationship (`aria-controls`, …) → accessibility sub-tree path. CSS, XPath, class strings, ids and `data-*` are explicitly forbidden. The answer is a strict JSON document. A validator checks it, and a resolver executes every tier on 5 fresh loads. |
+| **CoT prompt architecture** | A Chain-of-Thought system prompt ([`prompt/locator-cot-system-prompt.md`](prompt/locator-cot-system-prompt.md)) that makes an LLM parse a raw HTML component tree and return a **three-tier, ARIA-only locator strategy**: role mapping → ARIA relationship (`aria-controls`, …) → accessibility sub-tree path. CSS, XPath, class strings, ids and `data-*` are explicitly forbidden. The answer is a strict JSON document. A validator checks it, and a resolver executes every tier on 5 fresh loads. **Run on real models: 9 of 9 answers (Haiku, Sonnet and Opus 5.5, three runs each) pass the validator and resolve on 5 fresh loads** ([results](#real-model-answers)). |
 
 ---
 
 ## Run it
 
-Needs Node.js 20+. The test run starts the demo server itself, on 127.0.0.1:5318.
+Needs Node.js 20+. The test run starts the demo server itself, on 127.0.0.1:5318. Set `PORT=<n>` to
+use another port, and `CI=1` to make it start a fresh server even when one is already running.
 
 ```bash
 npm install
@@ -22,10 +23,11 @@ npm test
 
 | Command | What it does |
 |---|---|
-| `npm test` | Validator self-test (22 known-bad strategies) → `tsc --noEmit` → 9 Playwright tests. Ends with the **Q3 EVIDENCE SUMMARY**. |
+| `npm test` | Validator self-test (22 known-bad strategies) → `tsc --noEmit` → 18 Playwright tests (9 of them are the recorded model answers). Ends with the **Q3 EVIDENCE SUMMARY**. |
 | `npm run serve` | The demo on http://127.0.0.1:5318. Reload it and watch the tags, ids and classes change in DevTools. If it is already running, `npm test` reuses it. |
 | `npm run snapshot` | Captures a fresh load into `prompt/examples/input-component.html` and `prompt/examples/user-message.txt`. |
 | `npm run validate -- <answer.json>` | Validates one LLM answer against the schema and the hard rules (the input defaults to `prompt/examples/input-component.html`). |
+| `npm run prompt:run -- --model <m> [--runs <n>]` | Runs the prompt on a real model through the Claude Code CLI and records the answer and its provenance under `prompt/runs/` (see [*Real model answers*](#real-model-answers)). |
 | `npm run report` | Opens the HTML report (trace, screenshot and video of every test). |
 
 ---
@@ -186,14 +188,19 @@ only.
 | [`prompt/examples/user-message.txt`](prompt/examples/user-message.txt) | The user message: 6 targets by **intent** (not by name), plus the captured component. |
 | [`prompt/examples/input-component.html`](prompt/examples/input-component.html) | One live load, captured by `npm run snapshot`. Shadow roots are serialised as declarative templates with `Element.getHTML({shadowRoots})`. The closed root is included because the hook captured it. |
 | [`prompt/examples/reference-output.handwritten.json`](prompt/examples/reference-output.handwritten.json) | **Hand-written** reference answer (written while building this, **not** produced by a model run of the prompt). It is used as the validator's known-good base and to test the resolver. |
-| [`prompt/examples/llm-output.pasted.json`](prompt/examples/llm-output.pasted.json) | Slot for a **real** model answer. While it holds the placeholder, its test is skipped and says so. |
+| [`prompt/runs/`](prompt/runs) | **Real model answers**, one folder per run: `answer.txt` exactly as the model returned it, and `meta.json` with its provenance. Written by [`scripts/run-prompt.ts`](scripts/run-prompt.ts). |
+| [`prompt/history/v1/`](prompt/history/v1/README.md) | The first prompt version's runs, and why it was replaced (Sonnet and Opus refused it). |
+| [`prompt/examples/llm-output.pasted.json`](prompt/examples/llm-output.pasted.json) | Slot for an answer from **any other model** (for example a non-Claude one). While it holds the placeholder, its test is skipped and says so. |
 
 ### How the prompt forces the behaviour
 
-- **The chain of thought is part of the output and can be checked.** The answer's `reasoning` object
-  holds the eight steps: parse-tree → accessibility-model → volatility-scan → target identification →
-  relationship-map → landmark-map → compose tiers → self-check. The targets have to be derived from
-  that model, not from the raw HTML. A free-text "think step by step" can't be checked, but this can.
+- **An eight-step method whose results are part of the output and can be checked.** The steps are
+  parse-tree → accessibility-model → volatility-scan → target identification → relationship-map →
+  landmark-map → compose tiers → self-check. The model thinks privately. The answer's `analysis`
+  object records what steps 1, 2, 3 and 5 found (the scopes, the accessibility model, the volatile
+  tokens, the resolved IDREF relationships). The targets record steps 4, 6 and 7, and `selfCheck`
+  records step 8. The targets have to be derived from those findings, not from the raw HTML. A
+  free-text "think step by step" can't be checked, but a parse tree and a relationship map can.
 - **Three tiers with exact contracts:**
   - **Tier 1, role mapping:** `{role, name, uniqueOnPage}`.
   - **Tier 2, ARIA relationship:** `{relation, direction, anchor, targetRole}`. `aria-controls` is
@@ -211,7 +218,8 @@ only.
   - non-semantic roles;
   - invented names.
 
-  Ids may appear in the reasoning only to resolve an IDREF, and are dropped once it is resolved.
+  Ids may be used for one purpose only: to resolve an IDREF to the element it points at. After that,
+  the element is described by role + name and the id is dropped.
 - **Self-check (step 8).** Eight assertions that must all be `true` (they are `const: true` in the
   schema). The model has to revise until each one holds. The validator then recomputes every one
   independently, and reports which claim was false.
@@ -225,7 +233,7 @@ only.
 
 | Check | Error code |
 |---|---|
-| Strict schema (unknown keys, roles outside the ARIA 1.2 concrete list, a `false` self-check, missing reasoning step) | `SCHEMA` |
+| Strict schema (unknown keys, roles outside the ARIA 1.2 concrete list, a `false` self-check, a missing `analysis` step) | `SCHEMA` |
 | `#id` / `.class` / `[attr]` / pseudo-classes / combinators / `css=` / `pierce/` / `querySelector` in a locator field | `FORBIDDEN_CSS` |
 | `//`, `/html`, axes, `@attr`, `text()`, `contains()`, `[n]` | `FORBIDDEN_XPATH` |
 | `class=`, `id=`, `getElementById`, `className` | `FORBIDDEN_CLASS_OR_ID` |
@@ -257,7 +265,68 @@ On each of 5 fresh loads, for every target:
 After that, the transfer form is filled, submitted and its status read through the tier-3 handles. As a
 baseline, plain `getByRole` must find **none** of the closed-shadow targets.
 
-### Running the prompt on a real model
+### Real model answers
+
+The prompt was run three times each on Claude Haiku 5.5, Sonnet 5.5 and Opus 5.5:
+
+```bash
+npm run prompt:run -- --model haiku --runs 3      # also sonnet, opus, or a full model id; --effort is optional
+```
+
+[`scripts/run-prompt.ts`](scripts/run-prompt.ts) calls the Claude Code CLI in print mode, from an empty
+temporary directory:
+
+```
+claude -p --model <m> --system-prompt-file prompt/locator-cot-system-prompt.md --tools "" \
+       --strict-mcp-config --no-session-persistence --output-format json   < prompt/examples/user-message.txt
+```
+
+- **What the model gets.** The model gets the system prompt and the user message, and nothing else it
+  could use: no tools, no MCP servers, no files and no project instructions. The CLI does add a fixed
+  preamble of its own, about 780 tokens, which is included in the input counts below.
+- **What is recorded.** Each run is saved to `prompt/runs/<served model id>/run-<n>/`:
+  - `answer.txt`: the model's final text, byte for byte;
+  - `meta.json`: the model requested and served, CLI version, exact command, timing, tokens, and the
+    sha256 of the system prompt, user message, component and answer.
+- **How it is tested.** `npm test` finds every recorded run and holds it to the same bar as the
+  reference. It also reports whether the prompt, user message and component are still the ones the
+  run was made with.
+
+Results (2026-11-24, Claude Code CLI 2.1.331, default effort; per-run rows are in
+[`EVIDENCE.md`](EVIDENCE.md)):
+
+| Model | Validator | Replay on 5 fresh loads, every run | Time per run | Output tokens (of which thinking) | Cost per run, as the CLI reports it |
+|---|---|---|---|---|---|
+| Haiku 5.5 | 3/3 VALID, 0 warnings | 80/80 tier checks, 30/30 scope claims, 5/5 transfers, 0 `getByRole` hits in the closed root | 42–53 s | 11 410–14 180 (7 721–9 825) | $0.006–0.009 |
+| Sonnet 5.5 | 3/3 VALID, 0 warnings | same | 33–39 s | 6 114–6 848 (2 155–3 026) | $0.07–0.11 |
+| Opus 5.5 | 3/3 VALID, 0 warnings | same | 70–79 s | 9 151–10 330 (5 066–6 154) | $0.19–0.30 |
+
+Fable 5.2 was not run: on this plan it needs usage credits.
+
+What the answers show:
+
+- **They converge.** 8 of the 9 answers use exactly the same locators as the hand-written reference,
+  for all 6 targets: the same scope, the same tier 1 role and name, the same tier 2, and the same tier 3
+  path. Tier 2 is `aria-controls` for the tab/panel pairs and for button → status, and `unavailable` for
+  the amount and account fields, which only have a `<label for>`. The ninth (Haiku run-1) differs in one
+  way: its tier 3 paths start at the named `region` landmark instead of `main`. That is still
+  landmark-first, and it resolves too. The models never saw the reference: the prompt's only example
+  is a different component.
+- **Names were computed, not copied.** The user message asks for targets by intent ("the button that
+  submits the transfer"). Every model derived the accessible names itself, and `NAME_NOT_IN_INPUT` never
+  fired.
+- **Nothing is taken on trust.** The validator recomputes all eight self-check claims, and the resolver
+  executes every tier on loads the model never saw. Both passed for every answer.
+
+**Why the prompt is v2.** The first version asked the model to write its chain of thought out in a
+`reasoning` object. Haiku answered (2 of 3 valid), but Sonnet and Opus refused before answering,
+because their safeguards flagged the request as `reasoning_extraction`. v2 changes that framing and
+nothing else: the model thinks privately, and `analysis` holds each step's checkable findings. This
+also fits the brief better, because a finding can be checked against the input and a transcript can't.
+The change was made once and not tuned against the classifier. The full record, with the verbatim
+refusals and request IDs, is in [`prompt/history/v1/`](prompt/history/v1/README.md).
+
+### Running the prompt on any other model
 
 1. Use the whole of `prompt/locator-cot-system-prompt.md` as the **system** prompt, and the whole of
    `prompt/examples/user-message.txt` as the **user** message.
@@ -266,8 +335,10 @@ baseline, plain `getByRole` must find **none** of the closed-shadow targets.
    answer* test now runs instead of being skipped. If the model broke a rule, the validator names the
    rule and the field.
 
-`npm run snapshot` gives the model a fresh, never-seen load. The reference's own token list then
-produces `UNSEEN_VOLATILE_TOKEN` warnings, which are expected because the tokens changed.
+`npm run snapshot` gives the model a fresh, never-seen load. It rewrites the component and the user
+message, so the recorded runs then report `inputs unchanged since run: NO`. Their answers are still
+replayed against live loads. The reference's own token list produces `UNSEEN_VOLATILE_TOKEN`
+warnings, which are expected because the tokens changed.
 
 ---
 
@@ -280,8 +351,8 @@ produces `UNSEEN_VOLATILE_TOKEN` warnings, which are expected because the tokens
 | **Unlinked** closed root | Root kept only in closures | `vault.shadowRoot === null` 5/5; 0 host or `window` properties reference it |
 | **Raw vanilla JS query string** that **dynamically traverses** it | [`src/pierce-query.min.js`](src/pierce-query.min.js) + [`src/pierce-hook.min.js`](src/pierce-hook.min.js) (one line each), full engine [`src/shadow-pierce.js`](src/shadow-pierce.js) | Compact strings alone drive the closed form 5/5. Same node as the engine 11/11. Engine drives it 5/5 |
 | (extra) Hook-free alternative | [`src/cdpPierce.ts`](src/cdpPierce.ts) | 5/5 transfers with no script injected |
-| **CoT system prompt** that makes an LLM **parse raw HTML component trees** | [`prompt/locator-cot-system-prompt.md`](prompt/locator-cot-system-prompt.md), steps 1–8 written into `reasoning` | Prompt test: 8 steps, schema embedded verbatim, few-shot answer valid |
-| **Multi-tiered strategy** from **role mappings, aria-controls relationships, accessibility sub-trees** | Tier 1 / tier 2 / tier 3 contracts in the prompt and [schema](prompt/locator-output.schema.json) | Reference strategy: every tier resolves to the same single element, 5/5 loads |
+| **CoT system prompt** that makes an LLM **parse raw HTML component trees** | [`prompt/locator-cot-system-prompt.md`](prompt/locator-cot-system-prompt.md): eight steps, whose findings (parse tree, accessibility model, volatility scan, relationship map) go into `analysis` | Prompt test: 8 steps, schema embedded verbatim, few-shot answer valid. Real runs: 9/9 answers from Haiku, Sonnet and Opus 5.5 valid ([`prompt/runs/`](prompt/runs)) |
+| **Multi-tiered strategy** from **role mappings, aria-controls relationships, accessibility sub-trees** | Tier 1 / tier 2 / tier 3 contracts in the prompt and [schema](prompt/locator-output.schema.json) | The reference and all 9 model answers: every tier resolves to the same single element, 5/5 loads, 80/80 tier checks each |
 | **Explicitly forbidding** CSS attributes, absolute structural XPaths, raw class strings | Rules R1–R4 (+ R5–R8) in the prompt; [`scripts/validate-locators.ts`](scripts/validate-locators.ts) enforces them | Self-test: 22/22 known-bad strategies rejected with the right code |
 | Strategies survive volatile classes / random ids | Resolver runs each strategy against 5 new loads, never the captured one | 0 volatile tokens accepted; transfer driven through tier 3 on 5/5 loads |
 
@@ -300,9 +371,14 @@ produces `UNSEEN_VOLATILE_TOKEN` warnings, which are expected because the tokens
 - **Two independent checks of the role/name logic.** Writing an accname subset is easy to get subtly
   wrong. Playwright's `getByRole` checks it wherever Playwright can see, and Chrome's own accessibility
   tree (CDP) checks it inside the closed root, where Playwright can't.
-- **Structured chain of thought instead of a free-text one.** Every reasoning step is a schema field, so
-  it can be read, diffed and validated. The self-check values are fixed to `true` in the schema, so the
-  model has to fix its strategy instead of reporting a failure, and the validator recomputes them anyway.
+- **A structured method instead of a free-text chain of thought.** Each step's finding is a schema
+  field, so it can be read, diffed and validated. The prompt asks for findings, not for the model's
+  thinking. Asking for a transcript of the thinking got v1 refused by Sonnet and Opus, and a transcript
+  can't be checked anyway. The self-check values are fixed to `true` in the schema, so the model has to
+  fix its strategy instead of reporting a failure, and the validator recomputes them anyway.
+- **Record real runs with their provenance.** Pasting an answer by hand leaves no proof of where it came
+  from. `prompt:run` saves the exact text with hashes of every input, so each recorded answer can be
+  traced to the prompt version it was made from.
 - **Tier 2 may be `unavailable`.** Forcing a relationship for every target would push the model to
   invent `aria-controls` links. Two of the six reference targets have none, and say why.
 - **No `prefixItems` in the schema.** JSON Schema can only enforce "landmark first" with an open tuple,
@@ -331,9 +407,11 @@ produces `UNSEEN_VOLATILE_TOKEN` warnings, which are expected because the tokens
    it from content (for example a button's label) or as the text of a relationship anchor.
 5. **"Forces an LLM"**: a prompt alone can't force anything, so it is backed by a strict schema, a
    validator and an executor that reject non-compliant answers.
-6. **Model output.** The reference strategy was written by hand while building this. It is labelled so in
-   its file name and above. **A real model answer is not in the repo yet.** The `llm-output.pasted.json`
-   slot and its test are ready for one (see *Running the prompt on a real model*).
+6. **Model output.** The reference strategy was written by hand while building this, and its file name
+   says so. The model answers in `prompt/runs/` are real: each is the CLI's result text, unedited, and
+   its `meta.json` records the model that served it. They were produced through the Claude Code CLI
+   because no API key was available. The CLI's own ~780-token preamble is the one difference from a
+   bare API call. Any other model can be tested through `llm-output.pasted.json`.
 
 ---
 
@@ -352,7 +430,8 @@ Output of `npm install && npx playwright install chromium && npm test` is in [`E
        absolute paths, the transfer status;
      - the CDP lines;
      - the **Q3 EVIDENCE SUMMARY**: `vault.shadowRoot null: 5/5`, `getByRole/XPath hits in closed root: 0`,
-       `closed-root (role, name) vs Chrome AX tree`, `tier checks`.
+       `closed-root (role, name) vs Chrome AX tree`, `tier checks`;
+     - the nine *real model answer* tests: model served, tokens, `inputs unchanged since run: yes`, 80/80.
    - Run `npm run serve`, open http://127.0.0.1:5318 in DevTools, reload twice, and show the tag names
      changing and `#shadow-root (closed)`. In the console, `$0.shadowRoot` on the vault host is `null`.
    - Run `npm run validate -- prompt/examples/reference-output.handwritten.json`.
@@ -363,8 +442,11 @@ Output of `npm install && npx playwright install chromium && npm test` is in [`E
    - `tests/framework/resolveStrategy.ts` → `tests/*.spec.ts`
 3. **AI prompt history**
    - Show the prompts used to build this.
-   - Show a live run of the CoT prompt: system = the prompt file, user = `user-message.txt`. Paste the
-     answer into `llm-output.pasted.json` and run `npm test` again so the pasted-answer test runs.
+   - Show a live run of the CoT prompt: `npm run prompt:run -- --model sonnet` (about 35 s). The new
+     `prompt/runs/.../answer.txt` and `meta.json` appear, and `npm test` picks the run up as one more
+     test.
+   - Show `prompt/history/v1/README.md`: v1 was refused as `reasoning_extraction`, and v2 asks for
+     findings instead.
 
 ## Layout
 
@@ -380,10 +462,13 @@ q3/
     locator-cot-system-prompt.md                        the CoT system prompt
     locator-output.schema.json                          strict schema of the answer
     examples/                                           captured input, user message, reference, pasted-answer slot
+    runs/<model>/run-<n>/                               real model answers (answer.txt) + provenance (meta.json)
+    history/v1/                                         prompt v1 runs and refusals, and why v2 replaced it
   scripts/
     serve.ts                                            static server (no-store)
     snapshot-component.ts                               captures a live load with declarative shadow roots
     validate-locators.ts                                schema + semantic validator, --self-test
+    run-prompt.ts                                       runs the prompt on a real model via the Claude Code CLI
   tests/
     shadow-pierce.spec.ts                               engine and compact string over 5 reloads, oracles, README check
     cdp-pierce.spec.ts                                  CDP route over 5 reloads
