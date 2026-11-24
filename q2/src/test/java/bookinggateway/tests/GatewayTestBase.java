@@ -83,7 +83,8 @@ abstract class GatewayTestBase {
      */
     protected static void assertRejected(Attack attack, Response response, ErrorCode expected, String evidence) {
         int status = response.statusCode();
-        Evidence.put("response", status + " " + response.jsonPath().getString("error"));
+        String error = response.jsonPath().getString("error");
+        Evidence.put("response", status + " " + (error == null ? "ACCEPTED" : error));
         if (status >= 200 && status < 300) {
             VulnerabilityReporter.report(new VulnerabilityReporter.Attempt(
                     attack.title(),
