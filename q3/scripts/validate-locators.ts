@@ -18,7 +18,7 @@ export const SCHEMA_PATH = fromRoot('prompt/locator-output.schema.json');
 export const DEFAULT_INPUT = fromRoot('prompt/examples/input-component.html');
 export const REFERENCE_PATH = fromRoot('prompt/examples/reference-output.handwritten.json');
 
-export type Scope = 'document' | 'open-shadow' | 'closed-shadow';
+export type Scope = 'document' | 'open-shadow' | 'closed-shadow' | 'iframe';
 export interface NodeRef { role: string; name?: string }
 export interface Anchor { role: string; name?: string; text?: string }
 export interface RelationLocator {
@@ -81,13 +81,14 @@ const normalise = (text: string): string => text.replace(/\s+/g, ' ').trim();
 const decode = (text: string): string =>
   text.replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
 
-/** Generated-looking tokens in the input: ids, IDREFs, label targets, classes and custom-element tags. */
+/** Generated-looking tokens in the input: ids, IDREFs, label targets, classes, data-* values, frame URLs and custom-element tags. */
 export function volatileTokensOf(html: string): string[] {
   const tokens = new Set<string>();
   const add = (value: string | undefined): void => {
     for (const token of (value ?? '').split(/\s+/)) if (token.length >= 4) tokens.add(token);
   };
-  for (const m of html.matchAll(/\b(?:id|for|class)="([^"]*)"/g)) add(m[1]);
+  for (const m of html.matchAll(/\b(?:id|for|class|src)="([^"]*)"/g)) add(m[1]);
+  for (const m of html.matchAll(/\bdata-[a-z][\w-]*="([^"]*)"/g)) add(m[1]);
   for (const m of html.matchAll(/\baria-(?:controls|labelledby|describedby|owns|activedescendant|details|errormessage|flowto)="([^"]*)"/g)) add(m[1]);
   for (const m of html.matchAll(/<([a-z][a-z0-9]*-[a-z0-9-]*)/g)) add(m[1]);
   return [...tokens];
@@ -227,6 +228,7 @@ export function selfTest(inputHtml = readFileSync(DEFAULT_INPUT, 'utf8')): SelfT
   const reference = JSON.parse(readFileSync(REFERENCE_PATH, 'utf8')) as Strategy;
   const tokens = volatileTokensOf(inputHtml);
   const anId = tokens.find((t) => /^[a-z][a-z0-9]{8,}$/.test(t)) ?? 'missing-id';
+  const aTestId = tokens.find((t) => /^dyn-uuid-\d+$/.test(t)) ?? 'missing-test-id';
   const aTag = tokens.find((t) => /^[a-z][a-z0-9]*-[a-z0-9]+-[a-z0-9]+$/.test(t)) ?? 'missing-tag';
   const button = (s: Strategy): Target => s.targets.find((t) => t.key === 'confirmTransfer') as Target;
   const tab = (s: Strategy): Target => s.targets.find((t) => t.key === 'securityTab') as Target;
@@ -244,6 +246,7 @@ export function selfTest(inputHtml = readFileSync(DEFAULT_INPUT, 'utf8')): SelfT
     ['inline style', 'FORBIDDEN_DATA_OR_STYLE', (s) => { button(s).tier1.name = 'style="color: blue"'; }],
     ['random id from the input as a name', 'VOLATILE_TOKEN', (s) => { button(s).tier1.name = anId; }],
     ['custom-element tag from the input in a path', 'VOLATILE_TOKEN', (s) => { (button(s).tier3.path[1] as NodeRef).name = aTag; }],
+    ['data-test-id value from the input as a name', 'VOLATILE_TOKEN', (s) => { button(s).tier1.name = aTestId; }],
     ['tier 3 starts below a landmark', 'TIER3_NOT_LANDMARK', (s) => { tab(s).tier3.path.splice(0, 2); }],
     ['tier 3 ends at another element', 'TIER3_END_MISMATCH', (s) => { tab(s).tier3.path[tab(s).tier3.path.length - 1] = { role: 'tab', name: 'Profile' }; }],
     ['tier 2 lands on another role', 'TIER2_ROLE_MISMATCH', (s) => { (button(s).tier2 as RelationLocator).targetRole = 'link'; }],
