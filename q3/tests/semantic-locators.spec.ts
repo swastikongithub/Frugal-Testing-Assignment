@@ -32,6 +32,33 @@ const RUN_INPUTS = [
   ['input component', 'inputComponent', DEFAULT_INPUT],
 ] as const;
 
+/** JSON with sorted keys, so two locators compare equal whatever order the model wrote their fields in. */
+const canonical = (value: unknown): string => JSON.stringify(value, (_k, v: unknown) =>
+  v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => a.localeCompare(b))) : v);
+
+/** How a model answer's locators compare with the hand-written reference, target by target (reported, not asserted). */
+function compareWithReference(targets: Target[], reference: Target[]): string {
+  const parts = (t: Target): Record<string, string> => ({
+    scope: t.scope,
+    'tier 1': canonical(t.tier1),
+    // The reason text of an unavailable tier 2 is free prose; only the fact that it is unavailable is compared.
+    'tier 2': 'unavailable' in t.tier2 ? 'unavailable' : canonical(t.tier2),
+    'tier 3': canonical(t.tier3.path),
+  });
+  const differing = new Map<string, string[]>();
+  for (const ref of reference) {
+    const mine = targets.find((t) => t.key === ref.key);
+    const theirs = parts(ref);
+    const diff = mine ? Object.keys(theirs).filter((p) => parts(mine)[p] !== theirs[p]) : ['missing'];
+    if (diff.length) differing.set(ref.key, diff);
+  }
+  const same = reference.length - differing.size;
+  if (!differing.size) return `${same}/${reference.length} targets identical`;
+  const what = [...new Set([...differing.values()].flat())].join(' and ');
+  const where = same === 0 ? 'every target' : [...differing.keys()].join(', ');
+  return `${same}/${reference.length} targets identical (differs in ${what}, on ${where})`;
+}
+
 /** The fenced block of `lang` that follows `heading` in the prompt. */
 function fencedBlock(markdown: string, heading: string, lang: string): string {
   const at = markdown.indexOf(heading);
@@ -180,6 +207,10 @@ test.describe('Q3 - ARIA-only locator strategies from the CoT prompt', () => {
       evidence.metric('scope claims matching the page', `${scopeClaims}/${targets.length * RELOADS}`);
       evidence.metric('getByRole hits for closed-shadow targets', closedBaselineHits);
       evidence.metric('transfer driven via tier 3', `${flows}/${RELOADS}`);
+      if (source.metaPath) {
+        const reference = validateFile(REFERENCE_PATH, readFileSync(DEFAULT_INPUT, 'utf8')).strategy?.targets as Target[];
+        evidence.metric('locators vs hand-written reference', compareWithReference(targets, reference));
+      }
       await evidence.flush();
     });
   }
