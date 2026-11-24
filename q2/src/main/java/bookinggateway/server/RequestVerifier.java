@@ -2,6 +2,7 @@ package bookinggateway.server;
 
 import bookinggateway.crypto.Signer;
 import java.time.Clock;
+import java.util.Locale;
 
 /**
  * The PUT verification pipeline. Checks run in this order and the first failure wins:
@@ -45,6 +46,10 @@ public final class RequestVerifier {
             throw new GatewayRejection(ErrorCode.MALFORMED_TIMESTAMP, headers.timestamp());
         }
 
+        // One canonical form for both the HMAC compare and the nonce key, so a replay with the
+        // same signature in different letter case or with padding is still the same nonce.
+        String signature = headers.signature().trim().toLowerCase(Locale.ROOT);
+
         // 1. Freshness
         long now = clock.instant().getEpochSecond();
         long skew = Math.abs(now - timestamp);
@@ -53,12 +58,12 @@ public final class RequestVerifier {
         }
 
         // 2. Authenticity of the exact bytes received
-        if (!signer.verify(rawBody, bookingId, timestamp, headers.signature())) {
+        if (!signer.verify(rawBody, bookingId, timestamp, signature)) {
             throw new GatewayRejection(ErrorCode.SIGNATURE_MISMATCH, "HMAC over " + rawBody.length + " body bytes did not match");
         }
 
         // 3. Single use
-        if (!nonces.markUsed(headers.signature(), timestamp, now)) {
+        if (!nonces.markUsed(signature, timestamp, now)) {
             throw new GatewayRejection(ErrorCode.REPLAY_DETECTED, "signature already consumed");
         }
 
