@@ -1,0 +1,27 @@
+# Dependencies and build output
+node_modules/
+dist/
+
+# Playwright output (regenerated on every run)
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+
+# Maven output
+target/
+
+# Local environment and logs
+.env
+.env.*
+*.log
+npm-debug.log*
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# The assignment brief carries the issuer's copyright; keep it out of the repo
+Assignment 4.pdf

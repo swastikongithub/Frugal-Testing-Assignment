@@ -1,0 +1,10 @@
+# Store text as LF so shell scripts (e.g. mvnw) run on macOS/Linux after a Windows checkout.
+* text=auto eol=lf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+*.png binary
+*.jpg binary
+*.jar binary
+*.zip binary
+*.webm binary

@@ -1,0 +1,38 @@
+{
+  "name": "q1-driftdesk-chaos-suite",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Q1 - Event-loop starvation & state-drift: a mock crypto terminal plus a Playwright chaos/race/payload suite.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "vite build",
+    "serve": "tsx server/index.ts",
+    "start": "npm run build && npm run serve",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint:no-sleep": "node scripts/lint-no-sleep.mjs",
+    "test": "npm run lint:no-sleep && npm run typecheck && playwright test",
+    "test:headed": "npm run lint:no-sleep && playwright test --headed",
+    "report": "playwright show-report"
+  },
+  "dependencies": {
+    "express": "^5.3.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "ws": "^8.23.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.1",
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/ws": "^8.18.2",
+    "@vitejs/plugin-react": "^6.3.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8"
+  }
+}
