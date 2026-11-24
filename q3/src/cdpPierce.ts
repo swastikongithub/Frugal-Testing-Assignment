@@ -7,10 +7,11 @@ import type { CDPSession, Page } from '@playwright/test';
  * the whole flat tree without any script injected into the page:
  *
  *  - DOM.getDocument({ depth: -1, pierce: true }) returns every shadow root, each tagged with
- *    shadowRootType 'open' | 'closed' | 'user-agent'. We use it to map the shadow boundaries
- *    and to say which root a matched node lives in.
+ *    shadowRootType 'open' | 'closed' | 'user-agent', and every iframe's contentDocument. We use it
+ *    to map the boundaries (shadow roots and frames) and to say where a matched node lives.
  *  - Accessibility.queryAXTree({ backendNodeId: <document>, role, accessibleName }) searches the
- *    accessibility tree, which is built from the flat tree, so closed roots are included. The
+ *    accessibility tree, which is built from the flat tree, so closed roots are included. It stays
+ *    inside one document, so it is asked once per document: the top one and each iframe's. The
  *    browser computes role and name itself (full accname, not a subset).
  *  - Acting uses real input: DOM.focus + keyboard for typing, DOM.getContentQuads + mouse for
  *    clicks. Reading uses DOM.resolveNode + Runtime.callFunctionOn on the remote object.
@@ -29,22 +30,23 @@ interface DomNode {
   contentDocument?: DomNode;
 }
 
-export type RootMode = 'open' | 'closed';
+/** A boundary between tree scopes: an open or closed shadow root, or an iframe's document. */
+export type Boundary = 'open' | 'closed' | 'frame';
 
-export interface ShadowBoundary {
-  /** Host tag name as found in this load (volatile; evidence only, never used to query). */
+export interface ScopeBoundary {
+  /** Host (or iframe) tag name as found in this load (evidence only, never used to query). */
   hostName: string;
-  mode: RootMode;
-  /** Modes of the roots enclosing this host, outermost first ([] = host is in the document). */
-  enclosedBy: RootMode[];
+  mode: Boundary;
+  /** Boundaries enclosing this host, outermost first ([] = host is in the top document). */
+  enclosedBy: Boundary[];
 }
 
 export interface CdpMatch {
   backendNodeId: number;
   role: string;
   name: string;
-  /** Modes of the shadow roots around the node, outermost first ([] = in the document). */
-  shadowChain: RootMode[];
+  /** Boundaries around the node, outermost first ([] = in the top document). */
+  chain: Boundary[];
 }
 
 export class CdpPierce {
@@ -65,12 +67,17 @@ export class CdpPierce {
     return root;
   }
 
-  /** Walks the pierced DOM once; records every author shadow root and each node's enclosing roots. */
-  private async index(): Promise<{ boundaries: ShadowBoundary[]; chainOf: Map<number, RootMode[]> }> {
-    const boundaries: ShadowBoundary[] = [];
-    const chainOf = new Map<number, RootMode[]>();
-    const visit = (node: DomNode, chain: RootMode[]): void => {
+  /**
+   * Walks the pierced DOM once. Records every author shadow root and iframe document, each node's
+   * enclosing boundaries, and every document (the top one and each iframe's) for queryAXTree.
+   */
+  private async index(): Promise<{ boundaries: ScopeBoundary[]; chainOf: Map<number, Boundary[]>; documents: number[] }> {
+    const boundaries: ScopeBoundary[] = [];
+    const chainOf = new Map<number, Boundary[]>();
+    const documents: number[] = [];
+    const visit = (node: DomNode, chain: Boundary[]): void => {
       chainOf.set(node.backendNodeId, chain);
+      if (node.nodeName === '#document') documents.push(node.backendNodeId);
       for (const shadow of node.shadowRoots ?? []) {
         const mode = shadow.shadowRootType;
         if (mode === 'open' || mode === 'closed') {
@@ -80,34 +87,41 @@ export class CdpPierce {
         // user-agent roots (inside <input>, <select>, ...) are browser internals: skipped.
       }
       for (const child of node.children ?? []) visit(child, chain);
-      if (node.contentDocument) visit(node.contentDocument, chain);
+      if (node.contentDocument) {
+        boundaries.push({ hostName: node.localName, mode: 'frame', enclosedBy: chain });
+        visit(node.contentDocument, [...chain, 'frame']);
+      }
     };
     visit(await this.documentTree(), []);
-    return { boundaries, chainOf };
+    return { boundaries, chainOf, documents };
   }
 
-  /** Every open and closed shadow root on the page, as DOM.getDocument(pierce) reports them. */
-  async boundaries(): Promise<ShadowBoundary[]> {
+  /** Every open and closed shadow root and every iframe document, as DOM.getDocument(pierce) reports them. */
+  async boundaries(): Promise<ScopeBoundary[]> {
     return (await this.index()).boundaries;
   }
 
-  /** Accessibility-tree search by role and (exact) accessible name, from the document down. */
+  /** Accessibility-tree search by role and (exact) accessible name, in the top document and every iframe document. */
   async queryAll(role: string, name?: string): Promise<CdpMatch[]> {
-    const { root } = await this.session.send('DOM.getDocument', { depth: 0 });
-    const { nodes } = await this.session.send('Accessibility.queryAXTree', {
-      backendNodeId: root.backendNodeId,
-      role,
-      ...(name === undefined ? {} : { accessibleName: name }),
-    });
-    const { chainOf } = await this.index();
-    return nodes
-      .filter((node) => !node.ignored && node.backendDOMNodeId !== undefined)
-      .map((node) => ({
-        backendNodeId: node.backendDOMNodeId as number,
-        role: String(node.role?.value ?? ''),
-        name: String(node.name?.value ?? ''),
-        shadowChain: chainOf.get(node.backendDOMNodeId as number) ?? [],
-      }));
+    const { chainOf, documents } = await this.index();
+    const matches = new Map<number, CdpMatch>();
+    for (const backendNodeId of documents) {
+      const { nodes } = await this.session.send('Accessibility.queryAXTree', {
+        backendNodeId,
+        role,
+        ...(name === undefined ? {} : { accessibleName: name }),
+      });
+      for (const node of nodes) {
+        if (node.ignored || node.backendDOMNodeId === undefined) continue;
+        matches.set(node.backendDOMNodeId, {
+          backendNodeId: node.backendDOMNodeId,
+          role: String(node.role?.value ?? ''),
+          name: String(node.name?.value ?? ''),
+          chain: chainOf.get(node.backendDOMNodeId) ?? [],
+        });
+      }
+    }
+    return [...matches.values()];
   }
 
   /** Exactly one match, or a descriptive error. */
@@ -119,7 +133,7 @@ export class CdpPierce {
     return matches[0] as CdpMatch;
   }
 
-  /** Real mouse click at the centre of the node's first content quad. */
+  /** Real mouse click at the centre of the node's first content quad (page coordinates, also for iframe content). */
   async click(match: CdpMatch): Promise<void> {
     await this.session.send('DOM.scrollIntoViewIfNeeded', { backendNodeId: match.backendNodeId });
     const { quads } = await this.session.send('DOM.getContentQuads', { backendNodeId: match.backendNodeId });
