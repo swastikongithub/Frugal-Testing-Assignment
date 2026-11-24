@@ -22,7 +22,8 @@ export default defineConfig({
   webServer: {
     command: 'npm run serve',
     url: `http://127.0.0.1:${PORT}/health`,
-    reuseExistingServer: false,
+    // The demo is a static server, so a copy you already started with `npm run serve` can be reused (not in CI).
+    reuseExistingServer: !process.env.CI,
     timeout: 60_000,
     stdout: 'pipe',
   },
