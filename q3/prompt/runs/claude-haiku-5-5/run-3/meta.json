@@ -1,0 +1,28 @@
+{
+  "modelRequested": "haiku",
+  "modelServed": [
+    "claude-haiku-5-5"
+  ],
+  "via": "2.1.331 (Claude Code)",
+  "command": "claude -p --model haiku --system-prompt-file prompt/locator-cot-system-prompt.md --tools \"\" --strict-mcp-config --no-session-persistence --output-format json < prompt/examples/user-message.txt",
+  "effort": "CLI default",
+  "startedAt": "2026-11-24T09:08:12.734Z",
+  "durationMs": 55346,
+  "stopReason": "end_turn",
+  "tokens": {
+    "input": 12767,
+    "output": 14797,
+    "thinking": 10406
+  },
+  "costUSD": 0.0076,
+  "sha256": {
+    "systemPrompt": "9935202e6b08c58fa7a7373d6871a8a1e701209510a687cf8c05868be2b92ab9",
+    "userMessage": "3d76d011e2147d20c42aad9aa10ff4028881598ea1b114a9c0094b59c7204bb9",
+    "inputComponent": "b8a3a870cb85660694798fce8b4fdc1c8ee248959a3bf47480defb34f8f48579",
+    "answer": "bfcf477da5dbe493e76dbfea2721374321d0a7fa9d08d41238f58def9276e8b0"
+  },
+  "verdictWhenRecorded": {
+    "verdict": "VALID",
+    "errorCodes": []
+  }
+}
