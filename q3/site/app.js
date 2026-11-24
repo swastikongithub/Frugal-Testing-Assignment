@@ -1,33 +1,30 @@
 /**
  * Ledgerline account micro-frontend (local test fixture).
  *
- * Every load picks new random "segment names":
+ * Every load picks new random "segment names" (helpers in random.js):
  *   - custom element tag names   mf-<rand>-<rand>
  *   - every id, and so every IDREF (for, aria-controls, aria-labelledby, aria-describedby)
- *   - every class                css-<rand>, like CSS-in-JS output
+ *   - every class                css-<rand> / cta-<rand>, like CSS-in-JS output
+ *   - the confirm button's test id, dyn-uuid-<n>, and the iframe's src query
  *   - 0-2 anonymous wrapper <div>s around most blocks, so absolute paths change as well
+ *
+ * It mirrors the structure in the Q3 brief (shell-container > open root > micro-frontend-wrapper >
+ * closed root > nested iframe > button "Confirm Transaction"):
  *
  *   document > main > <shell host>                      OPEN shadow root
  *     nav "Account sections"
  *     region "Account settings"   tablist, tabs, tabpanels
  *     region "Transfer funds" > <vault host>             CLOSED shadow root
- *       form "New transfer"   Amount, To account, Confirm transfer, status
+ *       form "New transfer"   Amount, To account
+ *         iframe "Transaction confirmation"              its own document (confirm-frame.html)
+ *           button "Confirm Transaction", note, status
  *
  * The closed root is "unlinked": the vault keeps it only in a local variable (closures),
  * never on `this`, a global, a slot or an event. host.shadowRoot is null.
  * Only the accessibility semantics stay the same between loads.
  */
+import { cls, newId, rand, tagName, wrap } from './random.js';
 
-const ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
-const rand = () => Array.from(crypto.getRandomValues(new Uint8Array(5)), (b) => ALPHABET[b % 36]).join('');
-const tagName = () => `mf-${rand()}-${rand()}`;
-const newId = () => `${ALPHABET[Math.floor(Math.random() * 26)]}${rand()}${rand()}`;
-const cls = () => `css-${rand()}`;
-const wrap = (html) => {
-  let out = html;
-  for (let depth = Math.floor(Math.random() * 3); depth > 0; depth--) out = `<div class="${cls()}">${out}</div>`;
-  return out;
-};
 const sheet = (css) => {
   const s = new CSSStyleSheet();
   s.replaceSync(css);
@@ -73,7 +70,7 @@ const SHELL_CSS = `
 const VAULT_CSS = `
   ${SHARED_CSS}
   form { display: grid; gap: 14px; justify-items: start; }
-  [role="status"] { min-height: 1.2em; color: var(--ink); font-weight: 600; }
+  iframe { border: 0; width: 100%; height: 96px; color-scheme: normal; }
 `;
 
 class AccountShell extends HTMLElement {
@@ -140,7 +137,7 @@ class TransferVault extends HTMLElement {
   connectedCallback() {
     if (this.#mounted) return;
     this.#mounted = true;
-    const ids = { heading: newId(), amount: newId(), account: newId(), note: newId(), status: newId() };
+    const ids = { heading: newId(), amount: newId(), account: newId(), frame: newId() };
     // Closed and unlinked: `root` lives only in this scope and the listeners below.
     const root = this.attachShadow({ mode: 'closed' });
     root.adoptedStyleSheets = [sheet(VAULT_CSS)];
@@ -158,22 +155,24 @@ class TransferVault extends HTMLElement {
             <option>Holiday fund 1093</option>
           </select>
         </div>`)}
-        ${wrap(`<button class="${cls()}" type="submit" aria-controls="${ids.status}"
-                        aria-describedby="${ids.note}">Confirm transfer</button>`)}
-        <p class="${cls()}" id="${ids.note}">Transfers over 1,000.00 need two-factor authentication.</p>
-        <p class="${cls()}" id="${ids.status}" role="status" aria-live="polite"></p>
+        ${wrap(`<iframe class="${cls()}" id="${ids.frame}" title="Transaction confirmation"
+                        src="/confirm-frame.html?session=${rand()}"></iframe>`)}
       </form>`;
 
     const form = root.querySelector('form');
     const amount = root.getElementById(ids.amount);
     const account = root.getElementById(ids.account);
-    const status = root.getElementById(ids.status);
-    form.addEventListener('submit', (event) => {
-      event.preventDefault();
+    const frame = root.getElementById(ids.frame);
+    // The confirm button lives in the iframe. Enter in the amount field must not submit (and navigate) the form.
+    form.addEventListener('submit', (event) => event.preventDefault());
+    // The frame asks for the result of the transfer; the vault answers with the text for its status region.
+    window.addEventListener('message', (event) => {
+      if (event.source !== frame.contentWindow || event.origin !== location.origin || event.data?.type !== 'confirm-transaction') return;
       const value = Number(amount.value);
-      status.textContent = Number.isFinite(value) && value > 0
+      const text = Number.isFinite(value) && value > 0
         ? `Transfer of ${value.toFixed(2)} to ${account.selectedOptions[0].textContent} scheduled.`
         : 'Enter an amount greater than zero.';
+      frame.contentWindow.postMessage({ type: 'transaction-status', text }, location.origin);
     });
   }
 }
