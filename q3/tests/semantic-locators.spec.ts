@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { relative } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test, type ElementHandle } from '@playwright/test';
-import { recordedRuns, SYSTEM_PROMPT_PATH, USER_MESSAGE_PATH } from '../scripts/run-prompt';
+import { recordedRuns, RUNS_DIR, SYSTEM_PROMPT_PATH, USER_MESSAGE_PATH, verdictOf, type Verdict } from '../scripts/run-prompt';
 import {
   DEFAULT_INPUT, parseModelOutput, REFERENCE_PATH, selfTest, validateFile, validateStrategy, SCHEMA_PATH, type Target,
 } from '../scripts/validate-locators';
@@ -23,6 +23,31 @@ interface RunMeta {
   durationMs: number;
   tokens: { output: number; thinking: number };
   sha256: { systemPrompt: string; userMessage: string; inputComponent: string };
+  /** The validator's verdict when the run was recorded (absent in runs recorded before the field existed). */
+  verdictWhenRecorded?: Verdict;
+}
+
+const readMeta = (path: string): RunMeta => JSON.parse(readFileSync(path, 'utf8')) as RunMeta;
+
+/**
+ * Recorded answers that pass the validator but fail on the live page, as observed when they were first
+ * replayed (prompt/runs/known-replay-failures.json, keyed "<model>/run-<n>"). Their test asserts that the
+ * replay still fails at the same check, so a valid-but-wrong answer stays visible without turning the
+ * suite red, and the test fails if the answer ever starts to work.
+ */
+interface KnownReplayFailure { failsAt: string; why: string }
+const KNOWN_FAILURES_PATH = join(RUNS_DIR, 'known-replay-failures.json');
+const KNOWN_REPLAY_FAILURES: Record<string, KnownReplayFailure> = existsSync(KNOWN_FAILURES_PATH)
+  ? JSON.parse(readFileSync(KNOWN_FAILURES_PATH, 'utf8')) as Record<string, KnownReplayFailure>
+  : {};
+
+/** Provenance metrics shared by every recorded-run test. */
+function reportProvenance(evidence: Evidence, meta: RunMeta): void {
+  evidence.metric('model served', meta.modelServed.join(', '));
+  evidence.metric('answer', `${meta.tokens.output} tokens out (${meta.tokens.thinking} thinking), ${(meta.durationMs / 1000).toFixed(0)} s`);
+  // Reported, not asserted: an edited input makes the answer stale, and the checks below still show whether it holds.
+  const edited = RUN_INPUTS.filter(([, key, path]) => meta.sha256[key] !== sha256(readFileSync(path, 'utf8'))).map(([name]) => name);
+  evidence.metric('inputs unchanged since run', edited.length ? `NO (${edited.join(', ')} edited after this run)` : 'yes (prompt, user message, component)');
 }
 
 /** The inputs a recorded answer was generated from, and the files that hold them today. */
@@ -111,30 +136,48 @@ test.describe('Q3 - ARIA-only locator strategies from the CoT prompt', () => {
     await evidence.flush();
   });
 
-  // The hand-written reference, every real model answer recorded by `npm run prompt:run`, and the slot for
-  // an answer pasted from any other model. All of them must clear the same bar.
+  // A recorded model answer that the validator rejected when it was recorded is not replayed. Its test checks
+  // that the validator still rejects it, for the same reasons: a real model's mistake kept as a regression case.
+  for (const run of recordedRuns().filter((r) => readMeta(r.metaPath).verdictWhenRecorded?.verdict === 'INVALID')) {
+    test(`${run.model} run-${run.run} (real model answer): rejected by the validator, for the reasons recorded with it`, async ({}, testInfo) => {
+      const evidence = new Evidence(testInfo);
+      const log = evidence.logger(`${run.model} #${run.run}`);
+      const meta = readMeta(run.metaPath);
+      reportProvenance(evidence, meta);
+      const report = validateFile(run.answerPath, readFileSync(DEFAULT_INPUT, 'utf8'));
+      for (const e of report.errors) log(`rejected: ${e.code} at ${e.at}: ${e.message}`);
+      expect(verdictOf(report), 'same verdict and error codes as when the run was recorded').toEqual(meta.verdictWhenRecorded);
+      evidence.metric('validator', `INVALID (${report.errors.length} errors: ${verdictOf(report).errorCodes.join(', ')}), as recorded`);
+      evidence.metric('replayed on the live page', 'no (rejected answers are not executed)');
+      await evidence.flush();
+    });
+  }
+
+  // The hand-written reference, every real model answer the validator accepted when it was recorded, and the
+  // slot for an answer pasted from any other model. All of them must clear the same bar.
   const strategies = [
-    { label: 'hand-written reference strategy', path: REFERENCE_PATH, tag: 'hand-written', metaPath: undefined },
-    ...recordedRuns().map((r) => ({ label: `${r.model} run-${r.run} (real model answer)`, path: r.answerPath, tag: `${r.model} #${r.run}`, metaPath: r.metaPath })),
-    { label: 'pasted LLM answer', path: PASTED_PATH, tag: 'pasted', metaPath: undefined },
+    { label: 'hand-written reference strategy', path: REFERENCE_PATH, tag: 'hand-written', metaPath: undefined, known: undefined },
+    ...recordedRuns()
+      .filter((r) => readMeta(r.metaPath).verdictWhenRecorded?.verdict !== 'INVALID')
+      .map((r) => ({
+        label: `${r.model} run-${r.run} (real model answer)`, path: r.answerPath, tag: `${r.model} #${r.run}`, metaPath: r.metaPath,
+        known: KNOWN_REPLAY_FAILURES[`${r.model}/run-${r.run}`],
+      })),
+    { label: 'pasted LLM answer', path: PASTED_PATH, tag: 'pasted', metaPath: undefined, known: undefined },
   ];
 
   for (const source of strategies) {
-    test(`${source.label}: valid, and all tiers resolve to one same element on ${RELOADS} reloads`, async ({ page }, testInfo) => {
+    const title = source.known
+      ? `${source.label}: valid, but fails on the live page where it failed when first replayed`
+      : `${source.label}: valid, and all tiers resolve to one same element on ${RELOADS} reloads`;
+    test(title, async ({ page }, testInfo) => {
       const parsed = parseModelOutput(readFileSync(source.path, 'utf8'));
       const placeholder = Boolean(parsed.document && typeof parsed.document === 'object' && '_placeholder' in parsed.document);
       test.skip(placeholder, `${rel(source.path)} is still the placeholder: paste a real model answer into it to run this test`);
 
       const evidence = new Evidence(testInfo);
       const log = evidence.logger(source.tag);
-      if (source.metaPath) {
-        const meta = JSON.parse(readFileSync(source.metaPath, 'utf8')) as RunMeta;
-        evidence.metric('model served', meta.modelServed.join(', '));
-        evidence.metric('answer', `${meta.tokens.output} tokens out (${meta.tokens.thinking} thinking), ${(meta.durationMs / 1000).toFixed(0)} s`);
-        // Reported, not asserted: an edited input makes the answer stale, and the replay below still shows whether it holds.
-        const edited = RUN_INPUTS.filter(([, key, path]) => meta.sha256[key] !== sha256(readFileSync(path, 'utf8'))).map(([name]) => name);
-        evidence.metric('inputs unchanged since run', edited.length ? `NO (${edited.join(', ')} edited after this run)` : 'yes (prompt, user message, component)');
-      }
+      if (source.metaPath) reportProvenance(evidence, readMeta(source.metaPath));
       const report = validateFile(source.path, readFileSync(DEFAULT_INPUT, 'utf8'));
       expect(report.errors.map((e) => `${e.code} at ${e.at}: ${e.message}`), `${rel(source.path)} passes the validator`).toEqual([]);
       const targets = (report.strategy?.targets ?? []) as Target[];
@@ -145,62 +188,81 @@ test.describe('Q3 - ARIA-only locator strategies from the CoT prompt', () => {
       let flows = 0;
       let scopeClaims = 0;
       let closedBaselineHits = 0;
-      for (let load = 1; load <= RELOADS; load++) {
-        await loadDemo(page);
-        const deepest = new Map<string, ElementHandle<Element>>();
-        for (const target of targets) {
-          const resolved = await resolveTarget(page, target);
-          const where = `load ${load}, ${target.key}`;
-          expect(resolved.tier3.handles, `${where}: tier 3 (${resolved.tier3.engine}) matches one element`).toHaveLength(1);
-          const element = resolved.tier3.handles[0] as ElementHandle<Element>;
+      const replay = async (): Promise<void> => {
+        for (let load = 1; load <= RELOADS; load++) {
+          await loadDemo(page);
+          const deepest = new Map<string, ElementHandle<Element>>();
+          for (const target of targets) {
+            const resolved = await resolveTarget(page, target);
+            const where = `load ${load}, ${target.key}`;
+            expect(resolved.tier3.handles, `${where}: tier 3 (${resolved.tier3.engine}) matches one element`).toHaveLength(1);
+            const element = resolved.tier3.handles[0] as ElementHandle<Element>;
 
-          if (target.tier1.uniqueOnPage) {
-            expect(resolved.tier1.handles, `${where}: tier 1 (${resolved.tier1.engine}) matches one element`).toHaveLength(1);
-            expect(await sameNode(page, resolved.tier1.handles[0] as ElementHandle<Element>, element), `${where}: tier 1 = tier 3`).toBe(true);
-          } else {
-            expect(resolved.tier1.handles.length, `${where}: tier 1 declared shared`).toBeGreaterThan(1);
-            const hits = await Promise.all(resolved.tier1.handles.map((h) => sameNode(page, h, element)));
-            expect(hits.includes(true), `${where}: tier 3 element is one of the tier 1 matches`).toBe(true);
-          }
-          checks += 2;
-          if (resolved.tier2) {
-            expect(resolved.tier2.handles, `${where}: tier 2 (${resolved.tier2.engine}) matches one element`).toHaveLength(1);
-            expect(await sameNode(page, resolved.tier2.handles[0] as ElementHandle<Element>, element), `${where}: tier 2 = tier 3`).toBe(true);
-            checks++;
+            if (target.tier1.uniqueOnPage) {
+              expect(resolved.tier1.handles, `${where}: tier 1 (${resolved.tier1.engine}) matches one element`).toHaveLength(1);
+              expect(await sameNode(page, resolved.tier1.handles[0] as ElementHandle<Element>, element), `${where}: tier 1 = tier 3`).toBe(true);
+            } else {
+              expect(resolved.tier1.handles.length, `${where}: tier 1 declared shared`).toBeGreaterThan(1);
+              const hits = await Promise.all(resolved.tier1.handles.map((h) => sameNode(page, h, element)));
+              expect(hits.includes(true), `${where}: tier 3 element is one of the tier 1 matches`).toBe(true);
+            }
+            checks += 2;
+            if (resolved.tier2) {
+              expect(resolved.tier2.handles, `${where}: tier 2 (${resolved.tier2.engine}) matches one element`).toHaveLength(1);
+              expect(await sameNode(page, resolved.tier2.handles[0] as ElementHandle<Element>, element), `${where}: tier 2 = tier 3`).toBe(true);
+              checks++;
+            }
+
+            // The model's claim about where the element lives must match the live page.
+            const mode = await element.evaluate((el) => window.__shadowPierce.scopeOf(el).mode);
+            expect(mode, `${where}: scope "${target.scope}"`).toBe(SCOPE_MODE[target.scope]);
+            scopeClaims++;
+            if (BEHIND_CLOSED.has(target.scope)) {
+              const t1 = target.tier1;
+              closedBaselineHits += await (t1.name === undefined
+                ? page.getByRole(t1.role as never)
+                : page.getByRole(t1.role as never, { name: t1.name, exact: true })).count();
+            }
+            deepest.set(`${target.tier1.role}|${target.tier1.name ?? ''}`, element);
+            if (load === 1) {
+              log(`${target.key.padEnd(18)} [${target.scope}] t1 ${resolved.tier1.engine} | t2 ${resolved.tier2?.engine ?? 'unavailable'} | t3 ${resolved.tier3.engine}`);
+            }
           }
 
-          // The model's claim about where the element lives must match the live page.
-          const mode = await element.evaluate((el) => window.__shadowPierce.scopeOf(el).mode);
-          expect(mode, `${where}: scope "${target.scope}"`).toBe(SCOPE_MODE[target.scope]);
-          scopeClaims++;
-          if (BEHIND_CLOSED.has(target.scope)) {
-            const t1 = target.tier1;
-            closedBaselineHits += await (t1.name === undefined
-              ? page.getByRole(t1.role as never)
-              : page.getByRole(t1.role as never, { name: t1.name, exact: true })).count();
-          }
-          deepest.set(`${target.tier1.role}|${target.tier1.name ?? ''}`, element);
-          if (load === 1) {
-            log(`${target.key.padEnd(18)} [${target.scope}] t1 ${resolved.tier1.engine} | t2 ${resolved.tier2?.engine ?? 'unavailable'} | t3 ${resolved.tier3.engine}`);
+          // Drive the transfer through the tier-3 handles when the strategy covers the form.
+          const amount = deepest.get('textbox|Amount');
+          const account = deepest.get('combobox|To account');
+          const confirm = deepest.get('button|Confirm Transaction');
+          const status = deepest.get('status|');
+          if (amount && account && confirm && status) {
+            const value = (load * 77.7).toFixed(2);
+            await amount.fill(value);
+            await account.selectOption({ label: 'Holiday fund 1093' });
+            await (await inOwnFrame(confirm)).click(); // the button is in the iframe: act through that frame
+            await expect.poll(() => status.evaluate((el) => el.textContent)).toBe(`Transfer of ${value} to Holiday fund 1093 scheduled.`);
+            flows++;
           }
         }
 
-        // Drive the transfer through the tier-3 handles when the strategy covers the form.
-        const amount = deepest.get('textbox|Amount');
-        const account = deepest.get('combobox|To account');
-        const confirm = deepest.get('button|Confirm Transaction');
-        const status = deepest.get('status|');
-        if (amount && account && confirm && status) {
-          const value = (load * 77.7).toFixed(2);
-          await amount.fill(value);
-          await account.selectOption({ label: 'Holiday fund 1093' });
-          await (await inOwnFrame(confirm)).click(); // the button is in the iframe: act through that frame
-          await expect.poll(() => status.evaluate((el) => el.textContent)).toBe(`Transfer of ${value} to Holiday fund 1093 scheduled.`);
-          flows++;
+        expect(closedBaselineHits, 'getByRole alone finds none of the targets behind the closed boundary').toBe(0);
+      };
+
+      if (source.known) {
+        let failure = '';
+        try {
+          await replay();
+        } catch (error) {
+          failure = String(error instanceof Error ? error.message : error).split('\n')[0] ?? '';
         }
+        log(`replay failed: ${failure || '(it passed)'}`);
+        expect(failure, 'the replay still fails at the check where it failed when first replayed').toBe(source.known.failsAt);
+        evidence.metric('validator', `VALID (${report.warnings.length} warnings)`);
+        evidence.metric('replay on the live page', `FAILS, as first observed: ${source.known.failsAt}`);
+        evidence.metric('why', source.known.why);
+        await evidence.flush();
+        return;
       }
-
-      expect(closedBaselineHits, 'getByRole alone finds none of the targets behind the closed boundary').toBe(0);
+      await replay();
       evidence.metric('validator', `VALID (${report.warnings.length} warnings)`);
       evidence.metric('targets', targets.length);
       evidence.metric('scopes', [...new Set(targets.map((t) => t.scope))].join(', '));
