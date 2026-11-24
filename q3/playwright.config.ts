@@ -1,6 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
-const PORT = 5318;
+// PORT is passed on to `npm run serve` (scripts/serve.ts reads it too).
+const PORT = Number(process.env.PORT ?? 5318);
 
 export default defineConfig({
   testDir: './tests',
